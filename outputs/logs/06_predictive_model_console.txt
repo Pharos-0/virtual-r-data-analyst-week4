@@ -1,0 +1,809 @@
+> # =============================================================================
+> # 06_predictive_model.R
+> # Week 3 - Part B: churn classification models.
+> #   - modelling data, leakage review and redundant-level recoding
+> #   - stratified 80/20 train/test split (seed 42)
+> #   - multicollinearity check (VIF) on the training data
+> #   - 10-fold stratified cross-validation; identical folds for every model;
+> #     centring/scaling learned inside each training fold (caret preProcess)
+> #   - Model 1: logistic regression; Model 2: random forest (ranger)
+> #   - test-set evaluation: confusion matrix, accuracy, precision, recall,
+> #     F1, ROC-AUC; threshold analysis on out-of-fold predictions
+> #   - diagnostics: calibration, Hosmer-Lemeshow, binned residuals, influence
+> #   - interpretation: odds ratios, permutation importance, cumulative gains
+> # =============================================================================
+> source("R/00_setup.R")
+> load_packages(c("caret", "pROC", "ranger", "car", "ResourceSelection", "broom"))
+Registered S3 method overwritten by 'future':
+  method               from      
+  all.equal.connection parallelly
+> telco <- as_tibble(readRDS(file.path(paths$processed, "telco_clean.rds")))
+> # ---- 6.1 Modelling data and leakage review ----
+> # customerID is an identifier with no predictive meaning, so it is removed.
+> # The remaining fields describe the account at the time of the snapshot; none
+> # is computed from the churn outcome. "No internet service" / "No phone service"
+> # repeat information held in InternetService / PhoneService (Week 1 rank check),
+> # so they are recoded to "No" to avoid perfectly collinear dummy columns.
+> redundant_vars <- c("MultipleLines", "OnlineSecurity", "OnlineBackup", "DeviceProtection",
++                     "TechSupport", "StreamingTV", "StreamingMovies")
+> model_df <- telco %>%
++   select(-customerID) %>%
++   mutate(across(all_of(redundant_vars),
++                 ~ factor(if_else(as.character(.x) %in% c("No internet service", "No phone service"),
++                                  "No", as.character(.x)), levels = c("No", "Yes"))),
++          Churn = factor(Churn, levels = c("Yes", "No")))   # "Yes" first = positive class
+> dim(model_df)
+[1] 7043   20
+> str(model_df[, c("OnlineSecurity", "MultipleLines", "Churn")])
+tibble [7,043 × 3] (S3: tbl_df/tbl/data.frame)
+ $ OnlineSecurity: Factor w/ 2 levels "No","Yes": 1 2 2 2 1 1 1 2 1 2 ...
+ $ MultipleLines : Factor w/ 2 levels "No","Yes": 1 1 1 1 1 2 2 1 2 1 ...
+ $ Churn         : Factor w/ 2 levels "Yes","No": 2 2 1 2 1 1 2 2 1 2 ...
+> # ---- 6.2 Stratified train/test split ----
+> set.seed(SEED)
+> train_idx <- createDataPartition(model_df$Churn, p = 0.8, list = FALSE)
+> train <- model_df[train_idx, ]
+> test  <- model_df[-train_idx, ]
+> c(train = nrow(train), test = nrow(test))
+train  test 
+ 5636  1407 
+> rbind(train = prop.table(table(train$Churn)), test = prop.table(table(test$Churn)))
+            Yes        No
+train 0.2654365 0.7345635
+test  0.2651031 0.7348969
+> # ---- 6.3 Multicollinearity check on the training data ----
+> train_glm <- train %>% mutate(churn_yes = as.integer(Churn == "Yes")) %>% select(-Churn)
+> glm_all <- glm(churn_yes ~ ., data = train_glm, family = binomial)
+> vif_all <- car::vif(glm_all)
+> round(vif_all[order(-vif_all[, "GVIF"]), ], 2)
+                   GVIF Df GVIF^(1/(2*Df))
+MonthlyCharges   708.77  1           26.62
+InternetService  400.05  2            4.47
+PhoneService      34.73  1            5.89
+StreamingMovies   25.02  1            5.00
+StreamingTV       24.73  1            4.97
+TotalCharges      19.98  1            4.47
+tenure            15.42  1            3.93
+MultipleLines      7.34  1            2.71
+DeviceProtection   6.44  1            2.54
+OnlineBackup       6.43  1            2.54
+TechSupport        5.26  1            2.29
+OnlineSecurity     5.07  1            2.25
+Contract           1.58  2            1.12
+Partner            1.39  1            1.18
+PaymentMethod      1.39  3            1.06
+Dependents         1.30  1            1.14
+SeniorCitizen      1.14  1            1.07
+PaperlessBilling   1.14  1            1.07
+gender             1.01  1            1.00
+> # MonthlyCharges is almost fully explained by the services a customer takes
+> mc_r2 <- summary(lm(MonthlyCharges ~ PhoneService + MultipleLines + InternetService +
++                       OnlineSecurity + OnlineBackup + DeviceProtection + TechSupport +
++                       StreamingTV + StreamingMovies, data = train))$r.squared
+> mc_r2
+[1] 0.9988419
+> cor(train$TotalCharges, train$tenure * train$MonthlyCharges)
+[1] 0.9995588
+> # Interpretable logistic model: drop MonthlyCharges and TotalCharges
+> glm_lr <- glm(churn_yes ~ . - MonthlyCharges - TotalCharges, data = train_glm, family = binomial)
+> vif_lr <- car::vif(glm_lr)
+> round(vif_lr[order(-vif_lr[, "GVIF"]), ], 2)
+                 GVIF Df GVIF^(1/(2*Df))
+InternetService  2.42  2            1.25
+tenure           2.18  1            1.48
+Contract         1.56  2            1.12
+StreamingMovies  1.49  1            1.22
+StreamingTV      1.48  1            1.21
+MultipleLines    1.43  1            1.20
+PhoneService     1.43  1            1.20
+Partner          1.39  1            1.18
+PaymentMethod    1.36  3            1.05
+Dependents       1.31  1            1.14
+DeviceProtection 1.27  1            1.13
+OnlineBackup     1.20  1            1.09
+TechSupport      1.16  1            1.08
+SeniorCitizen    1.14  1            1.07
+PaperlessBilling 1.13  1            1.07
+OnlineSecurity   1.13  1            1.06
+gender           1.00  1            1.00
+> max(vif_lr[, "GVIF^(1/(2*Df))"])
+[1] 1.478104
+> # ---- 6.4 Cross-validation set-up ----
+> set.seed(SEED)
+> cv_index <- createFolds(train$Churn, k = 10, returnTrain = TRUE)   # stratified folds
+> sapply(cv_index, function(i) round(mean(train$Churn[-i] == "Yes"), 3))  # churn rate per held-out fold
+Fold01 Fold02 Fold03 Fold04 Fold05 Fold06 Fold07 Fold08 Fold09 Fold10 
+ 0.265  0.266  0.265  0.266  0.266  0.266  0.265  0.265  0.266  0.266 
+> ctrl <- trainControl(method = "cv", number = 10, index = cv_index,
++                      classProbs = TRUE, summaryFunction = twoClassSummary,
++                      savePredictions = "final")
+> # ---- 6.5 Model 1: logistic regression (10-fold CV) ----
+> set.seed(SEED)
+> model_lr <- train(Churn ~ . - MonthlyCharges - TotalCharges, data = train,
++                   method = "glm", family = binomial,
++                   preProcess = c("center", "scale"),     # learned within each fold
++                   metric = "ROC", trControl = ctrl)
+> model_lr
+Generalized Linear Model 
+
+5636 samples
+  19 predictor
+   2 classes: 'Yes', 'No' 
+
+Pre-processing: centered (21), scaled (21) 
+Resampling: Cross-Validated (10 fold) 
+Summary of sample sizes: 5073, 5072, 5073, 5072, 5072, 5072, ... 
+Resampling results:
+
+  ROC        Sens       Spec     
+  0.8412649  0.5334139  0.8963768
+
+> # Sensitivity check: the same model with all predictors (collinear version)
+> set.seed(SEED)
+> model_lr_all <- train(Churn ~ ., data = train, method = "glm", family = binomial,
++                       preProcess = c("center", "scale"), metric = "ROC", trControl = ctrl)
+> model_lr_all$results[, c("ROC", "Sens", "Spec")]
+        ROC      Sens      Spec
+1 0.8429042 0.5427696 0.8937198
+> # ---- 6.6 Model 1 summary and odds ratios ----
+> summary(glm_lr)
+
+Call:
+glm(formula = churn_yes ~ . - MonthlyCharges - TotalCharges, 
+    family = binomial, data = train_glm)
+
+Coefficients:
+                                      Estimate Std. Error z value Pr(>|z|)    
+(Intercept)                          -0.196026   0.170406  -1.150 0.250001    
+genderMale                           -0.047322   0.072374  -0.654 0.513208    
+SeniorCitizenYes                      0.248973   0.095519   2.607 0.009147 ** 
+PartnerYes                           -0.002598   0.087220  -0.030 0.976238    
+DependentsYes                        -0.201667   0.100301  -2.011 0.044365 *  
+tenure                               -0.034828   0.002626 -13.263  < 2e-16 ***
+PhoneServiceYes                      -0.429764   0.142826  -3.009 0.002621 ** 
+MultipleLinesYes                      0.258827   0.087445   2.960 0.003078 ** 
+InternetServiceFiber optic            0.854701   0.102518   8.337  < 2e-16 ***
+InternetServiceNo                    -0.768543   0.151783  -5.063 4.12e-07 ***
+OnlineSecurityYes                    -0.345849   0.094379  -3.664 0.000248 ***
+OnlineBackupYes                      -0.109827   0.084752  -1.296 0.195024    
+DeviceProtectionYes                   0.043834   0.087498   0.501 0.616396    
+TechSupportYes                       -0.418504   0.095059  -4.403 1.07e-05 ***
+StreamingTVYes                        0.262932   0.089329   2.943 0.003246 ** 
+StreamingMoviesYes                    0.273777   0.089823   3.048 0.002304 ** 
+ContractOne year                     -0.586550   0.116197  -5.048 4.47e-07 ***
+ContractTwo year                     -1.389634   0.198571  -6.998 2.59e-12 ***
+PaperlessBillingYes                   0.347019   0.083059   4.178 2.94e-05 ***
+PaymentMethodCredit card (automatic) -0.008967   0.126260  -0.071 0.943382    
+PaymentMethodElectronic check         0.316402   0.105894   2.988 0.002809 ** 
+PaymentMethodMailed check            -0.012310   0.126176  -0.098 0.922279    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 6522.7  on 5635  degrees of freedom
+Residual deviance: 4704.4  on 5614  degrees of freedom
+AIC: 4748.4
+
+Number of Fisher Scoring iterations: 6
+
+> or_table <- broom::tidy(glm_lr, conf.int = TRUE, exponentiate = TRUE) %>%
++   filter(term != "(Intercept)") %>%
++   arrange(desc(estimate))
+> print(or_table %>% mutate(across(where(is.numeric), ~ signif(.x, 3))), n = Inf, width = 100)
+# A tibble: 21 × 7
+   term                                 estimate std.error statistic  p.value conf.low conf.high
+   <chr>                                   <dbl>     <dbl>     <dbl>    <dbl>    <dbl>     <dbl>
+ 1 InternetServiceFiber optic              2.35    0.103      8.34   7.62e-17    1.92      2.88 
+ 2 PaperlessBillingYes                     1.41    0.0831     4.18   2.94e- 5    1.2       1.67 
+ 3 PaymentMethodElectronic check           1.37    0.106      2.99   2.81e- 3    1.12      1.69 
+ 4 StreamingMoviesYes                      1.31    0.0898     3.05   2.3 e- 3    1.1       1.57 
+ 5 StreamingTVYes                          1.3     0.0893     2.94   3.25e- 3    1.09      1.55 
+ 6 MultipleLinesYes                        1.3     0.0874     2.96   3.08e- 3    1.09      1.54 
+ 7 SeniorCitizenYes                        1.28    0.0955     2.61   9.15e- 3    1.06      1.55 
+ 8 DeviceProtectionYes                     1.04    0.0875     0.501  6.16e- 1    0.88      1.24 
+ 9 PartnerYes                              0.997   0.0872    -0.0298 9.76e- 1    0.841     1.18 
+10 PaymentMethodCredit card (automatic)    0.991   0.126     -0.071  9.43e- 1    0.774     1.27 
+11 PaymentMethodMailed check               0.988   0.126     -0.0976 9.22e- 1    0.772     1.27 
+12 tenure                                  0.966   0.00263  -13.3    3.81e-40    0.961     0.971
+13 genderMale                              0.954   0.0724    -0.654  5.13e- 1    0.828     1.1  
+14 OnlineBackupYes                         0.896   0.0848    -1.3    1.95e- 1    0.759     1.06 
+15 DependentsYes                           0.817   0.1       -2.01   4.44e- 2    0.671     0.994
+16 OnlineSecurityYes                       0.708   0.0944    -3.66   2.48e- 4    0.588     0.851
+17 TechSupportYes                          0.658   0.0951    -4.4    1.07e- 5    0.546     0.792
+18 PhoneServiceYes                         0.651   0.143     -3.01   2.62e- 3    0.492     0.862
+19 ContractOne year                        0.556   0.116     -5.05   4.47e- 7    0.442     0.697
+20 InternetServiceNo                       0.464   0.152     -5.06   4.12e- 7    0.344     0.623
+21 ContractTwo year                        0.249   0.199     -7      2.59e-12    0.167     0.364
+> save_table(or_table, "w3_logistic_odds_ratios")
+Saved table: outputs/tables/w3_logistic_odds_ratios.csv
+> c(null_deviance = glm_lr$null.deviance, residual_deviance = glm_lr$deviance, AIC = AIC(glm_lr))
+    null_deviance residual_deviance               AIC 
+         6522.733          4704.408          4748.408 
+> mcfadden_r2 <- 1 - glm_lr$deviance / glm_lr$null.deviance
+> mcfadden_r2
+[1] 0.2787672
+> # ---- 6.7 Model 2: random forest (ranger, 10-fold CV with tuning) ----
+> rf_grid <- expand.grid(mtry = c(2, 3, 4, 6), splitrule = "gini",
++                        min.node.size = c(10, 25, 50, 100))
+> set.seed(SEED)
+> model_rf <- train(Churn ~ ., data = train, method = "ranger",
++                   num.trees = 500, importance = "permutation",
++                   tuneGrid = rf_grid, metric = "ROC", trControl = ctrl)
+> model_rf
+Random Forest 
+
+5636 samples
+  19 predictor
+   2 classes: 'Yes', 'No' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold) 
+Summary of sample sizes: 5073, 5072, 5073, 5072, 5072, 5072, ... 
+Resampling results across tuning parameters:
+
+  mtry  min.node.size  ROC        Sens       Spec     
+  2      10            0.8434640  0.4552215  0.9256039
+  2      25            0.8446120  0.4418345  0.9268116
+  2      50            0.8438943  0.4257539  0.9297101
+  2     100            0.8442617  0.4016957  0.9345411
+  3      10            0.8403215  0.4919776  0.9101449
+  3      25            0.8428889  0.4819508  0.9142512
+  3      50            0.8444011  0.4765951  0.9152174
+  3     100            0.8445124  0.4638926  0.9195652
+  4      10            0.8374683  0.4953110  0.9082126
+  4      25            0.8418244  0.5006711  0.9108696
+  4      50            0.8435869  0.4926577  0.9113527
+  4     100            0.8446244  0.4826219  0.9142512
+  6      10            0.8342893  0.5006711  0.9057971
+  6      25            0.8380691  0.5066667  0.9086957
+  6      50            0.8420774  0.5006711  0.9086957
+  6     100            0.8432914  0.5013468  0.9091787
+
+Tuning parameter 'splitrule' was held constant at a value of gini
+ROC was used to select the optimal model using the largest value.
+The final values used for the model were mtry = 4, splitrule = gini and min.node.size = 100.
+> model_rf$bestTune
+   mtry splitrule min.node.size
+12    4      gini           100
+> p_tune <- ggplot(model_rf$results, aes(x = mtry, y = ROC, colour = factor(min.node.size))) +
++   geom_line(linewidth = 0.8) + geom_point(size = 2) +
++   scale_colour_manual(values = c("#94B3D4", "#6690BD", "#3F6B9C", "#1F4E79"), name = "Minimum node size") +
++   labs(title = "Random forest tuning: cross-validated ROC-AUC by mtry and node size",
++        subtitle = "10-fold stratified CV on the training set, 500 trees per forest",
++        x = "mtry (predictors tried at each split)", y = "Mean CV ROC-AUC")
+> save_plot(p_tune, "w3_rf_tuning", width = 6.8, height = 3.8)
+Saved figure: figures/w3_rf_tuning.png
+> # ---- 6.8 Cross-validated comparison ----
+> cv_results <- resamples(list(LogReg = model_lr, LogReg_all = model_lr_all, RandomForest = model_rf))
+> summary(cv_results)
+
+Call:
+summary.resamples(object = cv_results)
+
+Models: LogReg, LogReg_all, RandomForest 
+Number of resamples: 10 
+
+ROC 
+                  Min.   1st Qu.    Median      Mean   3rd Qu.      Max. NA's
+LogReg       0.8081401 0.8284112 0.8465678 0.8412649 0.8546699 0.8596538    0
+LogReg_all   0.8090419 0.8307416 0.8474200 0.8429042 0.8563527 0.8601127    0
+RandomForest 0.8139211 0.8331761 0.8493608 0.8446244 0.8555599 0.8698068    0
+
+Sens 
+                  Min.   1st Qu.    Median      Mean   3rd Qu.      Max. NA's
+LogReg       0.4533333 0.5083333 0.5335570 0.5334139 0.5692617 0.5866667    0
+LogReg_all   0.4800000 0.5151007 0.5418345 0.5427696 0.5759396 0.6000000    0
+RandomForest 0.4066667 0.4656488 0.4849664 0.4826219 0.5000000 0.5333333    0
+
+Spec 
+                  Min.   1st Qu.    Median      Mean   3rd Qu.      Max. NA's
+LogReg       0.8743961 0.8798309 0.8913043 0.8963768 0.9130435 0.9251208    0
+LogReg_all   0.8719807 0.8774155 0.8876812 0.8937198 0.9106280 0.9227053    0
+RandomForest 0.8840580 0.9051932 0.9154589 0.9142512 0.9251208 0.9371981    0
+
+> cv_summary <- tibble(
++   model = c("Logistic regression", "Logistic regression (all predictors)", "Random forest"),
++   cv_roc_mean = c(mean(model_lr$resample$ROC), mean(model_lr_all$resample$ROC), mean(model_rf$resample$ROC)),
++   cv_roc_sd   = c(sd(model_lr$resample$ROC), sd(model_lr_all$resample$ROC), sd(model_rf$resample$ROC)),
++   cv_sens     = c(mean(model_lr$resample$Sens), mean(model_lr_all$resample$Sens), mean(model_rf$resample$Sens)),
++   cv_spec     = c(mean(model_lr$resample$Spec), mean(model_lr_all$resample$Spec), mean(model_rf$resample$Spec))
++ )
+> cv_summary
+# A tibble: 3 × 5
+  model                                cv_roc_mean cv_roc_sd cv_sens cv_spec
+  <chr>                                      <dbl>     <dbl>   <dbl>   <dbl>
+1 Logistic regression                        0.841    0.0172   0.533   0.896
+2 Logistic regression (all predictors)       0.843    0.0168   0.543   0.894
+3 Random forest                              0.845    0.0170   0.483   0.914
+> save_table(cv_summary, "w3_cv_summary")
+Saved table: outputs/tables/w3_cv_summary.csv
+> # ---- 6.9 Test-set evaluation at the default 0.5 threshold ----
+> prob_lr <- predict(model_lr, newdata = test, type = "prob")[, "Yes"]
+> prob_rf <- predict(model_rf, newdata = test, type = "prob")[, "Yes"]
+> to_class <- function(prob, threshold) factor(if_else(prob >= threshold, "Yes", "No"),
++                                              levels = c("Yes", "No"))
+> cm_lr <- confusionMatrix(to_class(prob_lr, 0.5), test$Churn, positive = "Yes", mode = "everything")
+> cm_rf <- confusionMatrix(to_class(prob_rf, 0.5), test$Churn, positive = "Yes", mode = "everything")
+> cm_lr
+Confusion Matrix and Statistics
+
+          Reference
+Prediction Yes  No
+       Yes 223 111
+       No  150 923
+                                          
+               Accuracy : 0.8145          
+                 95% CI : (0.7932, 0.8345)
+    No Information Rate : 0.7349          
+    P-Value [Acc > NIR] : 1.419e-12       
+                                          
+                  Kappa : 0.5075          
+                                          
+ Mcnemar's Test P-Value : 0.01867         
+                                          
+            Sensitivity : 0.5979          
+            Specificity : 0.8926          
+         Pos Pred Value : 0.6677          
+         Neg Pred Value : 0.8602          
+              Precision : 0.6677          
+                 Recall : 0.5979          
+                     F1 : 0.6308          
+             Prevalence : 0.2651          
+         Detection Rate : 0.1585          
+   Detection Prevalence : 0.2374          
+      Balanced Accuracy : 0.7453          
+                                          
+       'Positive' Class : Yes             
+                                          
+> cm_rf
+Confusion Matrix and Statistics
+
+          Reference
+Prediction Yes  No
+       Yes 199 103
+       No  174 931
+                                          
+               Accuracy : 0.8031          
+                 95% CI : (0.7814, 0.8236)
+    No Information Rate : 0.7349          
+    P-Value [Acc > NIR] : 0.000000001375  
+                                          
+                  Kappa : 0.462           
+                                          
+ Mcnemar's Test P-Value : 0.000026005397  
+                                          
+            Sensitivity : 0.5335          
+            Specificity : 0.9004          
+         Pos Pred Value : 0.6589          
+         Neg Pred Value : 0.8425          
+              Precision : 0.6589          
+                 Recall : 0.5335          
+                     F1 : 0.5896          
+             Prevalence : 0.2651          
+         Detection Rate : 0.1414          
+   Detection Prevalence : 0.2146          
+      Balanced Accuracy : 0.7169          
+                                          
+       'Positive' Class : Yes             
+                                          
+> roc_lr <- pROC::roc(test$Churn, prob_lr, levels = c("No", "Yes"), direction = "<")
+> roc_rf <- pROC::roc(test$Churn, prob_rf, levels = c("No", "Yes"), direction = "<")
+> pROC::ci.auc(roc_lr)
+95% CI: 0.8315-0.8749 (DeLong)
+> pROC::ci.auc(roc_rf)
+95% CI: 0.8339-0.8762 (DeLong)
+> auc_test <- pROC::roc.test(roc_lr, roc_rf, method = "delong", paired = TRUE)
+> auc_test
+
+	DeLong's test for two correlated ROC curves
+
+data:  roc_lr and roc_rf
+Z = -0.50074, p-value = 0.6166
+alternative hypothesis: true difference in AUC is not equal to 0
+95 percent confidence interval:
+ -0.008995502  0.005334455
+sample estimates:
+AUC of roc1 AUC of roc2 
+  0.8531886   0.8550192 
+
+> metrics_row <- function(model, prob, cm, roc, threshold) {
++   tibble(model = model, threshold = threshold,
++          accuracy = unname(cm$overall["Accuracy"]), kappa = unname(cm$overall["Kappa"]),
++          precision = unname(cm$byClass["Precision"]), recall = unname(cm$byClass["Recall"]),
++          specificity = unname(cm$byClass["Specificity"]), f1 = unname(cm$byClass["F1"]),
++          balanced_accuracy = unname(cm$byClass["Balanced Accuracy"]),
++          roc_auc = as.numeric(pROC::auc(roc)),
++          brier = mean((prob - as.integer(test$Churn == "Yes"))^2),
++          TP = cm$table["Yes", "Yes"], FP = cm$table["Yes", "No"],
++          FN = cm$table["No", "Yes"], TN = cm$table["No", "No"])
++ }
+> test_metrics <- bind_rows(metrics_row("Logistic regression", prob_lr, cm_lr, roc_lr, 0.5),
++                           metrics_row("Random forest", prob_rf, cm_rf, roc_rf, 0.5))
+> print(test_metrics %>% mutate(across(where(is.double), ~ round(.x, 4))), width = 110)
+# A tibble: 2 × 15
+  model               threshold accuracy kappa precision recall specificity    f1 balanced_accuracy
+  <chr>                   <dbl>    <dbl> <dbl>     <dbl>  <dbl>       <dbl> <dbl>             <dbl>
+1 Logistic regression       0.5    0.814 0.507     0.668  0.598       0.893 0.631             0.745
+2 Random forest             0.5    0.803 0.462     0.659  0.534       0.900 0.590             0.717
+  roc_auc brier    TP    FP    FN    TN
+    <dbl> <dbl> <int> <int> <int> <int>
+1   0.853 0.132   223   111   150   923
+2   0.855 0.131   199   103   174   931
+> # ---- 6.10 ROC curves ----
+> roc_df <- bind_rows(
++   tibble(model = sprintf("Logistic regression (AUC = %.3f)", pROC::auc(roc_lr)),
++          fpr = 1 - roc_lr$specificities, tpr = roc_lr$sensitivities),
++   tibble(model = sprintf("Random forest (AUC = %.3f)", pROC::auc(roc_rf)),
++          fpr = 1 - roc_rf$specificities, tpr = roc_rf$sensitivities)) %>%
++   arrange(model, fpr, tpr)
+> p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr, colour = model)) +
++   geom_abline(linetype = "dashed", colour = col_muted) +
++   geom_path(linewidth = 0.9) +
++   scale_colour_manual(values = c(col_accent, col_neutral), name = NULL) +
++   coord_equal() +
++   labs(title = "ROC curves on the held-out test set",
++        subtitle = sprintf("n = %s customers; dashed line = random guessing (AUC = 0.5)",
++                           comma(nrow(test))),
++        x = "False positive rate (1 - specificity)", y = "True positive rate (recall)") +
++   theme(legend.position = "inside", legend.position.inside = c(0.98, 0.03),
++         legend.justification = c(1, 0),
++         legend.background = element_rect(fill = "white", colour = NA))
+> save_plot(p_roc, "w3_roc_curves", width = 5.8, height = 5.4)
+Saved figure: figures/w3_roc_curves.png
+> # ---- 6.11 Confusion matrices ----
+> cm_df <- bind_rows(
++   as_tibble(cm_lr$table) %>% mutate(model = "Logistic regression"),
++   as_tibble(cm_rf$table) %>% mutate(model = "Random forest")) %>%
++   mutate(Prediction = factor(Prediction, levels = c("Yes", "No")),
++          Reference = factor(Reference, levels = c("Yes", "No")),
++          cell = case_when(Prediction == "Yes" & Reference == "Yes" ~ "True positive",
++                           Prediction == "Yes" & Reference == "No" ~ "False positive",
++                           Prediction == "No" & Reference == "Yes" ~ "False negative",
++                           TRUE ~ "True negative"),
++          correct = Prediction == Reference)
+> cm_df
+# A tibble: 8 × 6
+  Prediction Reference     n model               cell           correct
+  <fct>      <fct>     <int> <chr>               <chr>          <lgl>  
+1 Yes        Yes         223 Logistic regression True positive  TRUE   
+2 No         Yes         150 Logistic regression False negative FALSE  
+3 Yes        No          111 Logistic regression False positive FALSE  
+4 No         No          923 Logistic regression True negative  TRUE   
+5 Yes        Yes         199 Random forest       True positive  TRUE   
+6 No         Yes         174 Random forest       False negative FALSE  
+7 Yes        No          103 Random forest       False positive FALSE  
+8 No         No          931 Random forest       True negative  TRUE   
+> p_cm <- ggplot(cm_df, aes(x = Reference, y = Prediction, fill = correct)) +
++   geom_tile(colour = "white", linewidth = 1.5) +
++   geom_text(aes(label = paste0(comma(n), "\n", cell)), size = 3.3, lineheight = 0.9,
++             colour = ifelse(cm_df$correct, "white", col_text)) +
++   facet_wrap(~ model) +
++   scale_fill_manual(values = c(`TRUE` = col_accent, `FALSE` = "#DDE3EA"), guide = "none") +
++   scale_y_discrete(limits = c("No", "Yes")) +
++   labs(title = "Confusion matrices on the test set (threshold = 0.5)",
++        subtitle = "Rows = predicted class, columns = actual class",
++        x = "Actual churn", y = "Predicted churn") +
++   theme(panel.grid = element_blank())
+> save_plot(p_cm, "w3_confusion_matrices", width = 7, height = 3.6)
+Saved figure: figures/w3_confusion_matrices.png
+> # ---- 6.12 Threshold analysis on out-of-fold CV predictions ----
+> threshold_metrics <- function(prob, truth, thresholds = seq(0.05, 0.95, by = 0.01)) {
++   y <- truth == "Yes"
++   map_dfr(thresholds, function(t) {
++     pred <- prob >= t
++     tp <- sum(pred & y); fp <- sum(pred & !y); fn <- sum(!pred & y); tn <- sum(!pred & !y)
++     precision <- if ((tp + fp) > 0) tp / (tp + fp) else NA_real_
++     recall <- tp / (tp + fn)
++     tibble(threshold = t, precision = precision, recall = recall,
++            specificity = tn / (tn + fp),
++            f1 = if (!is.na(precision) && (precision + recall) > 0)
++              2 * precision * recall / (precision + recall) else NA_real_,
++            flagged_share = mean(pred))
++   })
++ }
+> oof_lr <- model_lr$pred
+> oof_rf <- model_rf$pred %>%
++   filter(mtry == model_rf$bestTune$mtry, min.node.size == model_rf$bestTune$min.node.size)
+> nrow(oof_lr); nrow(oof_rf)                        # one out-of-fold prediction per training row
+[1] 5636
+[1] 5636
+> thr_lr <- threshold_metrics(oof_lr$Yes, oof_lr$obs) %>% mutate(model = "Logistic regression")
+> thr_rf <- threshold_metrics(oof_rf$Yes, oof_rf$obs) %>% mutate(model = "Random forest")
+> best_thr <- bind_rows(thr_lr, thr_rf) %>% group_by(model) %>% slice_max(f1, n = 1, with_ties = FALSE)
+> best_thr
+# A tibble: 2 × 7
+# Groups:   model [2]
+  threshold precision recall specificity    f1 flagged_share model              
+      <dbl>     <dbl>  <dbl>       <dbl> <dbl>         <dbl> <chr>              
+1      0.33     0.555  0.717       0.793 0.626         0.343 Logistic regression
+2      0.31     0.554  0.737       0.786 0.633         0.353 Random forest      
+> save_table(bind_rows(thr_lr, thr_rf), "w3_threshold_metrics_cv")
+Saved table: outputs/tables/w3_threshold_metrics_cv.csv
+> p_thr <- thr_lr %>%
++   select(threshold, Precision = precision, Recall = recall, F1 = f1) %>%
++   pivot_longer(-threshold, names_to = "metric", values_to = "value") %>%
++   filter(!is.na(value)) %>%          # precision is undefined when nothing is flagged
++   mutate(metric = factor(metric, levels = c("Recall", "F1", "Precision"))) %>%
++   ggplot(aes(x = threshold, y = value, colour = metric)) +
++   geom_vline(xintercept = c(0.5, best_thr$threshold[best_thr$model == "Logistic regression"]),
++              linetype = c("dashed", "solid"), colour = col_muted) +
++   geom_line(linewidth = 0.9) +
++   scale_colour_manual(values = pal_ordinal[c(3, 2, 1)], name = NULL) +
++   scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
++   labs(title = sprintf("Logistic regression: F1 peaks at a threshold of %.2f in cross-validation",
++                        best_thr$threshold[best_thr$model == "Logistic regression"]),
++        subtitle = "Out-of-fold predictions on the training set; dashed line = default 0.5",
++        x = "Classification threshold", y = "Metric value")
+> save_plot(p_thr, "w3_threshold_analysis", width = 7, height = 4)
+Saved figure: figures/w3_threshold_analysis.png
+> # Apply the CV-chosen thresholds once to the test set
+> thr_lr_best <- best_thr$threshold[best_thr$model == "Logistic regression"]
+> thr_rf_best <- best_thr$threshold[best_thr$model == "Random forest"]
+> cm_lr_t <- confusionMatrix(to_class(prob_lr, thr_lr_best), test$Churn, positive = "Yes", mode = "everything")
+> cm_rf_t <- confusionMatrix(to_class(prob_rf, thr_rf_best), test$Churn, positive = "Yes", mode = "everything")
+> cm_lr_t$table
+          Reference
+Prediction Yes  No
+       Yes 293 225
+       No   80 809
+> cm_rf_t$table
+          Reference
+Prediction Yes  No
+       Yes 293 242
+       No   80 792
+> test_metrics_all <- bind_rows(test_metrics,
++                               metrics_row("Logistic regression", prob_lr, cm_lr_t, roc_lr, thr_lr_best),
++                               metrics_row("Random forest", prob_rf, cm_rf_t, roc_rf, thr_rf_best))
+> print(test_metrics_all %>% select(model, threshold, accuracy, precision, recall, specificity, f1,
++                                   roc_auc, TP, FP, FN, TN) %>%
++         mutate(across(where(is.double), ~ round(.x, 3))), width = 110)
+# A tibble: 4 × 12
+  model               threshold accuracy precision recall specificity    f1 roc_auc    TP    FP
+  <chr>                   <dbl>    <dbl>     <dbl>  <dbl>       <dbl> <dbl>   <dbl> <int> <int>
+1 Logistic regression      0.5     0.814     0.668  0.598       0.893 0.631   0.853   223   111
+2 Random forest            0.5     0.803     0.659  0.534       0.9   0.59    0.855   199   103
+3 Logistic regression      0.33    0.783     0.566  0.786       0.782 0.658   0.853   293   225
+4 Random forest            0.31    0.771     0.548  0.786       0.766 0.645   0.855   293   242
+     FN    TN
+  <int> <int>
+1   150   923
+2   174   931
+3    80   809
+4    80   792
+> save_table(test_metrics_all, "w3_test_metrics")
+Saved table: outputs/tables/w3_test_metrics.csv
+> # ---- 6.13 Logistic regression diagnostics ----
+> # Hosmer-Lemeshow goodness-of-fit test (training data, 10 groups)
+> hl <- ResourceSelection::hoslem.test(train_glm$churn_yes, fitted(glm_lr), g = 10)
+> hl
+
+	Hosmer and Lemeshow goodness of fit (GOF) test
+
+data:  train_glm$churn_yes, fitted(glm_lr)
+X-squared = 10.187, df = 8, p-value = 0.2521
+
+> # Influential observations (Cook's distance)
+> cooks <- cooks.distance(glm_lr)
+> c(max_cooks_d = max(cooks), n_above_4_over_n = sum(cooks > 4 / nrow(train_glm)))
+     max_cooks_d n_above_4_over_n 
+     0.002963955    316.000000000 
+> # Binned residuals: average (observed - fitted) within 40 bins of fitted probability
+> binned <- tibble(fitted = fitted(glm_lr), resid = train_glm$churn_yes - fitted(glm_lr)) %>%
++   mutate(bin = ntile(fitted, 40)) %>%
++   group_by(bin) %>%
++   summarise(mean_fitted = mean(fitted), mean_resid = mean(resid), n = n(),
++             se = 2 * sqrt(mean(fitted) * (1 - mean(fitted)) / n()))
+> sum(abs(binned$mean_resid) > binned$se)          # bins outside the +/- 2 SE band
+[1] 0
+> p_binned <- ggplot(binned, aes(x = mean_fitted, y = mean_resid)) +
++   geom_hline(yintercept = 0, colour = col_muted) +
++   geom_line(aes(y = se), linetype = "dashed", colour = col_muted) +
++   geom_line(aes(y = -se), linetype = "dashed", colour = col_muted) +
++   geom_point(colour = col_accent, size = 2) +
++   scale_x_continuous(labels = label_percent()) +
++   labs(title = "Binned residuals of the logistic regression (training data)",
++        subtitle = "40 equal-size bins; dashed lines = approximate +/- 2 standard errors",
++        x = "Mean fitted churn probability", y = "Mean residual (observed - fitted)")
+> save_plot(p_binned, "w3_binned_residuals", width = 6.8, height = 3.8)
+Saved figure: figures/w3_binned_residuals.png
+> # Calibration on the test set: predicted vs observed churn by decile of risk
+> calib <- bind_rows(
++   tibble(model = "Logistic regression", prob = prob_lr, actual = test$Churn == "Yes"),
++   tibble(model = "Random forest", prob = prob_rf, actual = test$Churn == "Yes")) %>%
++   group_by(model) %>%
++   mutate(decile = ntile(prob, 10)) %>%
++   group_by(model, decile) %>%
++   summarise(mean_predicted = mean(prob), observed_rate = mean(actual), n = n(), .groups = "drop")
+> print(calib %>% mutate(across(c(mean_predicted, observed_rate), ~ round(.x, 3))), n = Inf)
+# A tibble: 20 × 5
+   model               decile mean_predicted observed_rate     n
+   <chr>                <int>          <dbl>         <dbl> <int>
+ 1 Logistic regression      1          0.009         0.014   141
+ 2 Logistic regression      2          0.022         0.035   141
+ 3 Logistic regression      3          0.049         0.035   141
+ 4 Logistic regression      4          0.096         0.078   141
+ 5 Logistic regression      5          0.163         0.163   141
+ 6 Logistic regression      6          0.245         0.142   141
+ 7 Logistic regression      7          0.355         0.39    141
+ 8 Logistic regression      8          0.48          0.386   140
+ 9 Logistic regression      9          0.609         0.679   140
+10 Logistic regression     10          0.747         0.736   140
+11 Random forest            1          0.013         0.007   141
+12 Random forest            2          0.034         0.021   141
+13 Random forest            3          0.077         0.064   141
+14 Random forest            4          0.121         0.078   141
+15 Random forest            5          0.176         0.121   141
+16 Random forest            6          0.25          0.227   141
+17 Random forest            7          0.34          0.312   141
+18 Random forest            8          0.452         0.471   140
+19 Random forest            9          0.581         0.557   140
+20 Random forest           10          0.749         0.8     140
+> save_table(calib, "w3_calibration_deciles")
+Saved table: outputs/tables/w3_calibration_deciles.csv
+> p_calib <- ggplot(calib, aes(x = mean_predicted, y = observed_rate, colour = model)) +
++   geom_abline(linetype = "dashed", colour = col_muted) +
++   geom_line(linewidth = 0.8) + geom_point(size = 2) +
++   scale_colour_manual(values = c(col_accent, col_neutral), name = NULL) +
++   scale_x_continuous(labels = label_percent(), limits = c(0, 1)) +
++   scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
++   coord_equal() +
++   labs(title = "Calibration on the test set by decile of predicted risk",
++        subtitle = "Points on the dashed line = predicted probabilities match observed churn",
++        x = "Mean predicted churn probability", y = "Observed churn rate")
+> save_plot(p_calib, "w3_calibration", width = 5.8, height = 5.4)
+Saved figure: figures/w3_calibration.png
+> # ---- 6.14 Variable importance ----
+> # Odds ratios with 95% profile-likelihood confidence intervals
+> p_or <- or_table %>%
++   mutate(term = fct_reorder(term, estimate),
++          significant = if_else(conf.low > 1 | conf.high < 1, "95% CI excludes 1", "95% CI includes 1")) %>%
++   ggplot(aes(x = estimate, y = term, colour = significant)) +
++   geom_vline(xintercept = 1, linetype = "dashed", colour = col_muted) +
++   geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.25) +
++   geom_point(size = 2) +
++   scale_x_log10() +
++   scale_colour_manual(values = c("95% CI excludes 1" = col_accent, "95% CI includes 1" = "#A9B3BE"),
++                       name = NULL) +
++   labs(title = "Logistic regression odds ratios for churn",
++        subtitle = "Log scale; > 1 = higher odds of churn than the reference level, holding other terms fixed",
++        x = "Odds ratio (95% CI)", y = NULL) +
++   theme(axis.text.y = element_text(size = 8))
+> save_plot(p_or, "w3_odds_ratios", width = 7, height = 5.6)
+Saved figure: figures/w3_odds_ratios.png
+> rf_imp <- varImp(model_rf, scale = FALSE)$importance %>%
++   as_tibble(rownames = "feature") %>%
++   rename(importance = Overall) %>%
++   arrange(desc(importance))
+> print(rf_imp, n = 15)
+# A tibble: 23 × 2
+   feature                       importance
+   <chr>                              <dbl>
+ 1 tenure                           0.0300 
+ 2 TotalCharges                     0.0221 
+ 3 InternetServiceFiber optic       0.0211 
+ 4 MonthlyCharges                   0.0170 
+ 5 ContractTwo year                 0.0127 
+ 6 InternetServiceNo                0.00750
+ 7 ContractOne year                 0.00637
+ 8 TechSupportYes                   0.00291
+ 9 PaymentMethodElectronic check    0.00278
+10 OnlineSecurityYes                0.00229
+11 PaperlessBillingYes              0.00189
+12 StreamingMoviesYes               0.00172
+13 StreamingTVYes                   0.00151
+14 MultipleLinesYes                 0.00143
+15 SeniorCitizenYes                 0.00118
+# ℹ 8 more rows
+> save_table(rf_imp, "w3_rf_permutation_importance")
+Saved table: outputs/tables/w3_rf_permutation_importance.csv
+> p_imp <- rf_imp %>%
++   slice_max(importance, n = 15) %>%
++   ggplot(aes(x = importance, y = fct_reorder(feature, importance))) +
++   geom_col(fill = col_accent, width = 0.7) +
++   labs(title = "Random forest: permutation importance (top 15 features)",
++        subtitle = "Mean decrease in accuracy when a feature's values are shuffled",
++        x = "Permutation importance", y = NULL) +
++   theme(axis.text.y = element_text(size = 8.5))
+> save_plot(p_imp, "w3_rf_importance", width = 7, height = 4.6)
+Saved figure: figures/w3_rf_importance.png
+> # ---- 6.15 Cumulative gains on the test set ----
+> gains <- bind_rows(
++   tibble(model = "Logistic regression", prob = prob_lr, actual = test$Churn == "Yes"),
++   tibble(model = "Random forest", prob = prob_rf, actual = test$Churn == "Yes")) %>%
++   group_by(model) %>%
++   arrange(desc(prob), .by_group = TRUE) %>%
++   mutate(share_contacted = row_number() / n(),
++          share_churners_captured = cumsum(actual) / sum(actual)) %>%
++   ungroup()
+> gains_summary <- gains %>%
++   group_by(model) %>%
++   summarise(top10 = share_churners_captured[which.min(abs(share_contacted - 0.1))],
++             top20 = share_churners_captured[which.min(abs(share_contacted - 0.2))],
++             top30 = share_churners_captured[which.min(abs(share_contacted - 0.3))])
+> gains_summary
+# A tibble: 2 × 4
+  model               top10 top20 top30
+  <chr>               <dbl> <dbl> <dbl>
+1 Logistic regression 0.279 0.534 0.678
+2 Random forest       0.300 0.509 0.689
+> save_table(gains_summary, "w3_gains_summary")
+Saved table: outputs/tables/w3_gains_summary.csv
+> p_gains <- ggplot(gains, aes(x = share_contacted, y = share_churners_captured, colour = model)) +
++   geom_abline(linetype = "dashed", colour = col_muted) +
++   geom_line(linewidth = 0.9) +
++   scale_colour_manual(values = c(col_accent, col_neutral), name = NULL) +
++   scale_x_continuous(labels = label_percent()) +
++   scale_y_continuous(labels = label_percent()) +
++   labs(title = sprintf("Targeting the 20%% highest-risk customers would reach %s of churners",
++                        pct(gains_summary$top20[gains_summary$model == "Logistic regression"], 0)),
++        subtitle = "Cumulative gains on the test set (logistic regression figure in title); dashed = random",
++        x = "Share of customers contacted (highest predicted risk first)",
++        y = "Share of churners reached")
+> save_plot(p_gains, "w3_cumulative_gains", width = 6.8, height = 4.2)
+Saved figure: figures/w3_cumulative_gains.png
+> # ---- 6.16 Save model objects and test-set predictions ----
+> saveRDS(model_lr, file.path(paths$models, "model_logistic.rds"))
+> saveRDS(model_rf, file.path(paths$models, "model_random_forest.rds"))
+> test_predictions <- tibble(row_id = seq_len(nrow(test)), actual = test$Churn,
++                            prob_logistic = prob_lr, prob_random_forest = prob_rf)
+> write_csv(test_predictions, file.path(paths$tables, "w3_test_predictions.csv"))
+> # ---- 6.17 Metrics for the report ----
+> record("n_train", nrow(train)); record("n_test", nrow(test))
+> record("train_churn_rate", mean(train$Churn == "Yes")); record("test_churn_rate", mean(test$Churn == "Yes"))
+> record("n_test_churn", sum(test$Churn == "Yes")); record("n_test_nochurn", sum(test$Churn == "No"))
+> record("vif_max_all", max(vif_all[, "GVIF"])); record("vif_monthly_all", vif_all["MonthlyCharges", "GVIF"])
+> record("vif_total_all", vif_all["TotalCharges", "GVIF"]); record("vif_internet_all", vif_all["InternetService", "GVIF"])
+> record("vif_max_lr", max(vif_lr[, "GVIF"])); record("vif_adj_max_lr", max(vif_lr[, "GVIF^(1/(2*Df))"]))
+> record("mc_r2_services", mc_r2)
+> record("cv_roc_lr", cv_summary$cv_roc_mean[1]); record("cv_roc_sd_lr", cv_summary$cv_roc_sd[1])
+> record("cv_roc_lr_all", cv_summary$cv_roc_mean[2]); record("cv_roc_sd_lr_all", cv_summary$cv_roc_sd[2])
+> record("cv_roc_rf", cv_summary$cv_roc_mean[3]); record("cv_roc_sd_rf", cv_summary$cv_roc_sd[3])
+> record("cv_sens_lr", cv_summary$cv_sens[1]); record("cv_spec_lr", cv_summary$cv_spec[1])
+> record("cv_sens_rf", cv_summary$cv_sens[3]); record("cv_spec_rf", cv_summary$cv_spec[3])
+> record("rf_best_mtry", model_rf$bestTune$mtry); record("rf_best_nodesize", model_rf$bestTune$min.node.size)
+> record("rf_grid_roc_min", min(model_rf$results$ROC)); record("rf_grid_roc_max", max(model_rf$results$ROC))
+> record("rf_grid_n", nrow(rf_grid))
+> record("lr_aic", AIC(glm_lr)); record("lr_mcfadden_r2", mcfadden_r2)
+> record("lr_null_dev", glm_lr$null.deviance); record("lr_resid_dev", glm_lr$deviance)
+> record("lr_n_coef", length(coef(glm_lr)) - 1)
+> record("lr_n_sig", sum(summary(glm_lr)$coefficients[-1, 4] < 0.05))
+> for (m in c("lr", "rf")) {
++   for (t in c("default", "tuned")) {
++     row <- test_metrics_all[test_metrics_all$model == ifelse(m == "lr", "Logistic regression", "Random forest"), ][ifelse(t == "default", 1, 2), ]
++     for (col in c("threshold", "accuracy", "kappa", "precision", "recall", "specificity", "f1",
++                   "balanced_accuracy", "roc_auc", "brier", "TP", "FP", "FN", "TN")) {
++       record(paste0("test_", m, "_", t, "_", col), row[[col]])
++     }
++   }
++ }
+> record("nir", unname(cm_lr$overall["AccuracyNull"]))
+> record("lr_acc_vs_nir_p", unname(cm_lr$overall["AccuracyPValue"]))
+> record("rf_acc_vs_nir_p", unname(cm_rf$overall["AccuracyPValue"]))
+> record("auc_lr_ci_low", as.numeric(pROC::ci.auc(roc_lr))[1]); record("auc_lr_ci_high", as.numeric(pROC::ci.auc(roc_lr))[3])
+> record("auc_rf_ci_low", as.numeric(pROC::ci.auc(roc_rf))[1]); record("auc_rf_ci_high", as.numeric(pROC::ci.auc(roc_rf))[3])
+> record("auc_diff_p", auc_test$p.value); record("auc_diff_z", unname(auc_test$statistic))
+> record("hl_chisq", unname(hl$statistic)); record("hl_p", hl$p.value)
+> record("cooks_max", max(cooks)); record("cooks_n_above", sum(cooks > 4 / nrow(train_glm)))
+> record("binned_outside", sum(abs(binned$mean_resid) > binned$se)); record("binned_n", nrow(binned))
+> for (i in seq_len(nrow(gains_summary))) {
++   m <- ifelse(gains_summary$model[i] == "Logistic regression", "lr", "rf")
++   record(paste0("gains_", m, "_top10"), gains_summary$top10[i])
++   record(paste0("gains_", m, "_top20"), gains_summary$top20[i])
++   record(paste0("gains_", m, "_top30"), gains_summary$top30[i])
++ }
+> for (i in seq_len(nrow(or_table))) {
++   key <- gsub("[^A-Za-z0-9]", "", or_table$term[i])
++   record(paste0("or_", key), or_table$estimate[i])
++   record(paste0("or_low_", key), or_table$conf.low[i]); record(paste0("or_high_", key), or_table$conf.high[i])
++   record(paste0("or_p_", key), or_table$p.value[i])
++ }
+> for (i in 1:10) record(paste0("rf_imp_", i, "_name"), rf_imp$feature[i])
+> for (i in 1:10) record(paste0("rf_imp_", i, "_value"), rf_imp$importance[i])
+> calib_lr <- filter(calib, model == "Logistic regression")
+> record("calib_lr_top_pred", calib_lr$mean_predicted[10]); record("calib_lr_top_obs", calib_lr$observed_rate[10])
+> record("calib_lr_bottom_pred", calib_lr$mean_predicted[1]); record("calib_lr_bottom_obs", calib_lr$observed_rate[1])
+> calib_rf <- filter(calib, model == "Random forest")
+> record("calib_rf_top_pred", calib_rf$mean_predicted[10]); record("calib_rf_top_obs", calib_rf$observed_rate[10])
+> write_metrics("06_predictive_model")
+Saved 221 metrics: outputs/metrics/06_predictive_model.json

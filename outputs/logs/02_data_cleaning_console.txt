@@ -1,0 +1,311 @@
+> # =============================================================================
+> # 02_data_cleaning.R
+> # Week 1 - Step 2: clean the raw data.
+> #   - whitespace and label consistency
+> #   - missing values (detection, pattern, treatment, before/after)
+> #   - duplicate treatment
+> #   - data type conversion (character -> numeric, 0/1 -> factor, text -> factor)
+> #   - validation of the cleaned table
+> # Output: data/processed/telco_clean.rds and telco_clean.csv
+> # =============================================================================
+> source("R/00_setup.R")
+> load_packages("janitor")
+> raw_file <- file.path(paths$processed, "telco_raw.rds")
+> if (!file.exists(raw_file)) source("R/01_data_import.R")
+> telco_raw <- readRDS(raw_file)
+> n_raw <- nrow(telco_raw)
+> # ---- 2.1 Whitespace and label consistency ----
+> chr_cols <- names(telco_raw)[vapply(telco_raw, is.character, logical(1))]
+> ws_issues <- vapply(telco_raw[chr_cols],
++                     function(x) sum(x != str_trim(x) | str_detect(x, "\\s{2,}")),
++                     integer(1))
+> ws_issues[ws_issues > 0]
+named integer(0)
+> telco <- telco_raw %>% mutate(across(all_of(chr_cols), str_trim))
+> # Distinct labels of every categorical field (checks spelling / case variants)
+> cat_cols <- setdiff(chr_cols, c("customerID", "TotalCharges"))
+> label_check <- tibble(
++   variable = cat_cols,
++   n_labels = vapply(telco[cat_cols], n_distinct, integer(1)),
++   labels   = vapply(telco[cat_cols], function(x) paste(sort(unique(x)), collapse = " | "),
++                     character(1))
++ )
+> print(label_check, n = Inf, width = 100)
+# A tibble: 16 × 3
+   variable         n_labels labels                                                                 
+   <chr>               <int> <chr>                                                                  
+ 1 gender                  2 Female | Male                                                          
+ 2 Partner                 2 No | Yes                                                               
+ 3 Dependents              2 No | Yes                                                               
+ 4 PhoneService            2 No | Yes                                                               
+ 5 MultipleLines           3 No | No phone service | Yes                                            
+ 6 InternetService         3 DSL | Fiber optic | No                                                 
+ 7 OnlineSecurity          3 No | No internet service | Yes                                         
+ 8 OnlineBackup            3 No | No internet service | Yes                                         
+ 9 DeviceProtection        3 No | No internet service | Yes                                         
+10 TechSupport             3 No | No internet service | Yes                                         
+11 StreamingTV             3 No | No internet service | Yes                                         
+12 StreamingMovies         3 No | No internet service | Yes                                         
+13 Contract                3 Month-to-month | One year | Two year                                   
+14 PaperlessBilling        2 No | Yes                                                               
+15 PaymentMethod           4 Bank transfer (automatic) | Credit card (automatic) | Electronic check…
+16 Churn                   2 No | Yes                                                               
+> save_table(label_check, "w1_label_check")
+Saved table: outputs/tables/w1_label_check.csv
+> # ---- 2.2 Missing values before cleaning ----
+> # Empty strings are counted as missing together with NA values. (The blank
+> # TotalCharges entries were already converted to NA by read.csv.)
+> count_missing <- function(df) {
++   tibble(variable  = names(df),
++          n_missing = vapply(df, function(x) sum(is.na(x) | (is.character(x) & x == "")),
++                             integer(1))) %>%
++     mutate(pct_missing = round(100 * n_missing / nrow(df), 3))
++ }
+> missing_before <- count_missing(telco)
+> print(missing_before, n = Inf)
+# A tibble: 21 × 3
+   variable         n_missing pct_missing
+   <chr>                <int>       <dbl>
+ 1 customerID               0       0    
+ 2 gender                   0       0    
+ 3 SeniorCitizen            0       0    
+ 4 Partner                  0       0    
+ 5 Dependents               0       0    
+ 6 tenure                   0       0    
+ 7 PhoneService             0       0    
+ 8 MultipleLines            0       0    
+ 9 InternetService          0       0    
+10 OnlineSecurity           0       0    
+11 OnlineBackup             0       0    
+12 DeviceProtection         0       0    
+13 TechSupport              0       0    
+14 StreamingTV              0       0    
+15 StreamingMovies          0       0    
+16 Contract                 0       0    
+17 PaperlessBilling         0       0    
+18 PaymentMethod            0       0    
+19 MonthlyCharges           0       0    
+20 TotalCharges            11       0.156
+21 Churn                    0       0    
+> save_table(missing_before, "w1_missing_before")
+Saved table: outputs/tables/w1_missing_before.csv
+> record("n_missing_total_before", sum(missing_before$n_missing))
+> record("n_vars_with_missing_before", sum(missing_before$n_missing > 0))
+> # ---- 2.3 Data type conversion ----
+> # Numeric columns: confirm the classes R assigned on import are appropriate
+> sapply(telco[c("tenure", "MonthlyCharges", "TotalCharges")], class)
+        tenure MonthlyCharges   TotalCharges 
+     "integer"      "numeric"      "numeric" 
+> # SeniorCitizen is a Yes/No attribute stored as 0/1 -> labelled factor
+> table(telco$SeniorCitizen)
+
+   0    1 
+5901 1142 
+> telco <- telco %>%
++   mutate(SeniorCitizen = factor(SeniorCitizen, levels = c(0, 1), labels = c("No", "Yes")))
+> table(telco$SeniorCitizen)
+
+  No  Yes 
+5901 1142 
+> # ---- 2.4 Missing-value pattern ----
+> colSums(is.na(telco))[colSums(is.na(telco)) > 0]
+TotalCharges 
+          11 
+> telco %>%
++   filter(is.na(TotalCharges)) %>%
++   select(customerID, tenure, MonthlyCharges, TotalCharges, Contract, Churn)
+   customerID tenure MonthlyCharges TotalCharges Contract Churn
+1  4472-LVYGI      0          52.55           NA Two year    No
+2  3115-CZMZD      0          20.25           NA Two year    No
+3  5709-LVOEQ      0          80.85           NA Two year    No
+4  4367-NUYAO      0          25.75           NA Two year    No
+5  1371-DWPAZ      0          56.05           NA Two year    No
+6  7644-OMVMY      0          19.85           NA Two year    No
+7  3213-VVOLG      0          25.35           NA Two year    No
+8  2520-SGTTA      0          20.00           NA Two year    No
+9  2923-ARZLG      0          19.70           NA One year    No
+10 4075-WKNIU      0          73.35           NA Two year    No
+11 2775-SEFEE      0          61.90           NA Two year    No
+> # Are the missing totals linked to tenure = 0 (customers not yet billed)?
+> table(tenure_is_zero = telco$tenure == 0, total_missing = is.na(telco$TotalCharges))
+              total_missing
+tenure_is_zero FALSE TRUE
+         FALSE  7032    0
+         TRUE      0   11
+> # For billed customers TotalCharges should track tenure x MonthlyCharges
+> cor_tc_expected <- with(telco, cor(TotalCharges, tenure * MonthlyCharges, use = "complete.obs"))
+> cor_tc_expected
+[1] 0.9995599
+> # ---- 2.5 Missing-value treatment ----
+> # Options considered for the 11 missing TotalCharges values
+> obs_tc <- telco$TotalCharges[!is.na(telco$TotalCharges)]
+> treatment_options <- tibble(
++   method        = c("Listwise deletion", "Mean imputation", "Median imputation",
++                     "Set to 0 because tenure = 0 (chosen)"),
++   rows_retained = c(sum(!is.na(telco$TotalCharges)), rep(nrow(telco), 3)),
++   value_filled  = c(NA, round(mean(obs_tc), 2), round(median(obs_tc), 2), 0)
++ )
+> treatment_options
+# A tibble: 4 × 3
+  method                               rows_retained value_filled
+  <chr>                                        <int>        <dbl>
+1 Listwise deletion                             7032          NA 
+2 Mean imputation                               7043        2283.
+3 Median imputation                             7043        1397.
+4 Set to 0 because tenure = 0 (chosen)          7043           0 
+> save_table(treatment_options, "w1_missing_treatment_options")
+Saved table: outputs/tables/w1_missing_treatment_options.csv
+> telco <- telco %>%
++   mutate(TotalCharges = if_else(is.na(TotalCharges) & tenure == 0, 0, TotalCharges))
+> missing_after <- count_missing(telco)
+> missing_compare <- missing_before %>%
++   select(variable, missing_before = n_missing) %>%
++   left_join(missing_after %>% select(variable, missing_after = n_missing), by = "variable") %>%
++   filter(missing_before > 0 | missing_after > 0)
+> missing_compare
+# A tibble: 1 × 3
+  variable     missing_before missing_after
+  <chr>                 <int>         <int>
+1 TotalCharges             11             0
+> sum(is.na(telco))
+[1] 0
+> save_table(missing_compare, "w1_missing_before_after")
+Saved table: outputs/tables/w1_missing_before_after.csv
+> # ---- 2.6 Duplicate treatment ----
+> # No exact duplicate rows and no repeated IDs were found in 01_data_import.R.
+> # Records sharing a profile apart from customerID are different customers, so
+> # they are kept.
+> janitor::get_dupes(telco, -customerID) %>%
++   select(dupe_count, customerID, tenure, Contract, InternetService, MonthlyCharges,
++          TotalCharges) %>%
++   head(8)
+  dupe_count customerID tenure       Contract InternetService MonthlyCharges TotalCharges
+1          3 3030-ZKIWL      1 Month-to-month              No          20.05        20.05
+2          3 7096-UCLNH      1 Month-to-month              No          20.05        20.05
+3          3 8749-CLJXC      1 Month-to-month              No          20.05        20.05
+4          3 6380-ARCEH      1 Month-to-month              No          20.20        20.20
+5          3 3247-MHJKM      1 Month-to-month              No          20.20        20.20
+6          3 8048-DSDFQ      1 Month-to-month              No          20.20        20.20
+7          2 9728-FTTVZ      1 Month-to-month     Fiber optic          69.20        69.20
+8          2 7660-HDPJV      1 Month-to-month     Fiber optic          69.20        69.20
+> n_before_dedup <- nrow(telco)
+> telco <- distinct(telco)                 # would remove exact duplicate rows only
+> c(rows_before = n_before_dedup, rows_after = nrow(telco))
+rows_before  rows_after 
+       7043        7043 
+> # ---- 2.7 Convert categorical variables to factors ----
+> yes_no_vars  <- c("Partner", "Dependents", "PhoneService", "PaperlessBilling", "Churn")
+> service_vars <- c("OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport",
++                   "StreamingTV", "StreamingMovies")
+> telco <- telco %>%
++   mutate(
++     gender          = factor(gender, levels = c("Female", "Male")),
++     across(all_of(yes_no_vars), ~ factor(.x, levels = c("No", "Yes"))),
++     MultipleLines   = factor(MultipleLines, levels = c("No", "Yes", "No phone service")),
++     InternetService = factor(InternetService, levels = c("DSL", "Fiber optic", "No")),
++     across(all_of(service_vars), ~ factor(.x, levels = c("No", "Yes", "No internet service"))),
++     Contract        = factor(Contract, levels = c("Month-to-month", "One year", "Two year")),
++     PaymentMethod   = factor(PaymentMethod,
++                              levels = c("Bank transfer (automatic)", "Credit card (automatic)",
++                                         "Electronic check", "Mailed check"))
++   )
+> # Converting to factors must not create NA values (would indicate unmatched labels)
+> sum(is.na(telco))
+[1] 0
+> sapply(telco, class)
+      customerID           gender    SeniorCitizen          Partner       Dependents 
+     "character"         "factor"         "factor"         "factor"         "factor" 
+          tenure     PhoneService    MultipleLines  InternetService   OnlineSecurity 
+       "integer"         "factor"         "factor"         "factor"         "factor" 
+    OnlineBackup DeviceProtection      TechSupport      StreamingTV  StreamingMovies 
+        "factor"         "factor"         "factor"         "factor"         "factor" 
+        Contract PaperlessBilling    PaymentMethod   MonthlyCharges     TotalCharges 
+        "factor"         "factor"         "factor"        "numeric"        "numeric" 
+           Churn 
+        "factor" 
+> # ---- 2.8 Cleaned data: str() and summary() ----
+> str(telco)
+'data.frame':	7043 obs. of  21 variables:
+ $ customerID      : chr  "7590-VHVEG" "5575-GNVDE" "3668-QPYBK" "7795-CFOCW" ...
+ $ gender          : Factor w/ 2 levels "Female","Male": 1 2 2 2 1 1 2 1 1 2 ...
+ $ SeniorCitizen   : Factor w/ 2 levels "No","Yes": 1 1 1 1 1 1 1 1 1 1 ...
+ $ Partner         : Factor w/ 2 levels "No","Yes": 2 1 1 1 1 1 1 1 2 1 ...
+ $ Dependents      : Factor w/ 2 levels "No","Yes": 1 1 1 1 1 1 2 1 1 2 ...
+ $ tenure          : int  1 34 2 45 2 8 22 10 28 62 ...
+ $ PhoneService    : Factor w/ 2 levels "No","Yes": 1 2 2 1 2 2 2 1 2 2 ...
+ $ MultipleLines   : Factor w/ 3 levels "No","Yes","No phone service": 3 1 1 3 1 2 2 3 2 1 ...
+ $ InternetService : Factor w/ 3 levels "DSL","Fiber optic",..: 1 1 1 1 2 2 2 1 2 1 ...
+ $ OnlineSecurity  : Factor w/ 3 levels "No","Yes","No internet service": 1 2 2 2 1 1 1 2 1 2 ...
+ $ OnlineBackup    : Factor w/ 3 levels "No","Yes","No internet service": 2 1 2 1 1 1 2 1 1 2 ...
+ $ DeviceProtection: Factor w/ 3 levels "No","Yes","No internet service": 1 2 1 2 1 2 1 1 2 1 ...
+ $ TechSupport     : Factor w/ 3 levels "No","Yes","No internet service": 1 1 1 2 1 1 1 1 2 1 ...
+ $ StreamingTV     : Factor w/ 3 levels "No","Yes","No internet service": 1 1 1 1 1 2 2 1 2 1 ...
+ $ StreamingMovies : Factor w/ 3 levels "No","Yes","No internet service": 1 1 1 1 1 2 1 1 2 1 ...
+ $ Contract        : Factor w/ 3 levels "Month-to-month",..: 1 2 1 2 1 1 1 1 1 2 ...
+ $ PaperlessBilling: Factor w/ 2 levels "No","Yes": 2 1 2 1 2 2 2 1 2 1 ...
+ $ PaymentMethod   : Factor w/ 4 levels "Bank transfer (automatic)",..: 3 4 4 1 3 3 2 4 3 1 ...
+ $ MonthlyCharges  : num  29.9 57 53.9 42.3 70.7 ...
+ $ TotalCharges    : num  29.9 1889.5 108.2 1840.8 151.7 ...
+ $ Churn           : Factor w/ 2 levels "No","Yes": 1 1 2 1 2 2 1 1 2 1 ...
+> summary(telco)
+  customerID           gender     SeniorCitizen Partner    Dependents     tenure      PhoneService
+ Length:7043        Female:3488   No :5901      No :3641   No :4933   Min.   : 0.00   No : 682    
+ Class :character   Male  :3555   Yes:1142      Yes:3402   Yes:2110   1st Qu.: 9.00   Yes:6361    
+ Mode  :character                                                     Median :29.00               
+                                                                      Mean   :32.37               
+                                                                      3rd Qu.:55.00               
+                                                                      Max.   :72.00               
+          MultipleLines     InternetService             OnlineSecurity              OnlineBackup 
+ No              :3390   DSL        :2421   No                 :3498   No                 :3088  
+ Yes             :2971   Fiber optic:3096   Yes                :2019   Yes                :2429  
+ No phone service: 682   No         :1526   No internet service:1526   No internet service:1526  
+                                                                                                 
+                                                                                                 
+                                                                                                 
+            DeviceProtection              TechSupport                StreamingTV  
+ No                 :3095    No                 :3473   No                 :2810  
+ Yes                :2422    Yes                :2044   Yes                :2707  
+ No internet service:1526    No internet service:1526   No internet service:1526  
+                                                                                  
+                                                                                  
+                                                                                  
+            StreamingMovies           Contract    PaperlessBilling                   PaymentMethod 
+ No                 :2785   Month-to-month:3875   No :2872         Bank transfer (automatic):1544  
+ Yes                :2732   One year      :1473   Yes:4171         Credit card (automatic)  :1522  
+ No internet service:1526   Two year      :1695                    Electronic check         :2365  
+                                                                   Mailed check             :1612  
+                                                                                                   
+                                                                                                   
+ MonthlyCharges    TotalCharges    Churn     
+ Min.   : 18.25   Min.   :   0.0   No :5174  
+ 1st Qu.: 35.50   1st Qu.: 398.6   Yes:1869  
+ Median : 70.35   Median :1394.5             
+ Mean   : 64.76   Mean   :2279.7             
+ 3rd Qu.: 89.85   3rd Qu.:3786.6             
+ Max.   :118.75   Max.   :8684.8             
+> # ---- 2.9 Validation checks ----
+> stopifnot(
++   nrow(telco) == n_raw,
++   !anyNA(telco),
++   n_distinct(telco$customerID) == nrow(telco),
++   all(telco$tenure >= 0), all(telco$MonthlyCharges > 0), all(telco$TotalCharges >= 0)
++ )
+> cat("Validation passed:", nrow(telco), "rows x", ncol(telco), "columns, no missing values\n")
+Validation passed: 7043 rows x 21 columns, no missing values
+> # ---- 2.10 Save the cleaned data ----
+> saveRDS(telco, file.path(paths$processed, "telco_clean.rds"))
+> write_csv(telco, file.path(paths$processed, "telco_clean.csv"))
+> record("n_ws_issue_values", sum(ws_issues))
+> record("n_ws_issue_vars", sum(ws_issues > 0))
+> record("n_missing_totalcharges", sum(missing_before$n_missing[missing_before$variable == "TotalCharges"]))
+> record("pct_missing_totalcharges", missing_before$pct_missing[missing_before$variable == "TotalCharges"])
+> record("tc_mean_observed", mean(obs_tc))
+> record("tc_median_observed", median(obs_tc))
+> record("cor_tc_expected", cor_tc_expected)
+> record("n_tenure_zero", sum(telco$tenure == 0))
+> record("n_missing_after", sum(is.na(telco)))
+> record("n_rows_clean", nrow(telco))
+> record("n_cols_clean", ncol(telco))
+> record("n_factor_cols", sum(vapply(telco, is.factor, logical(1))))
+> write_metrics("02_data_cleaning")
+Saved 14 metrics: outputs/metrics/02_data_cleaning.json

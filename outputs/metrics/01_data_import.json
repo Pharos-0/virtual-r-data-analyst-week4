@@ -1,0 +1,21 @@
+{
+  "churn_rate": 0.265369870793696,
+  "dup_profile_n_m2m": 42,
+  "dup_profile_n_nointernet": 26,
+  "dup_profile_tenure_max": 1,
+  "dup_profile_tenure_median": 1,
+  "n_character_cols": 17,
+  "n_churn_no": 5174,
+  "n_churn_yes": 1869,
+  "n_cols": 21,
+  "n_dup_ids": 0,
+  "n_dup_profile_records": 42,
+  "n_dup_profiles": 22,
+  "n_dup_rows": 0,
+  "n_numeric_cols": 4,
+  "n_rows": 7043,
+  "n_totalcharges_non_numeric": 11,
+  "r_version": "4.3.3",
+  "raw_file_bytes": 970457,
+  "raw_md5": "3b0bfab28a8101b4e4fdd08025a5c235"
+}

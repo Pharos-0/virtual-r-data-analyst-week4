@@ -1,0 +1,7 @@
+Contract,Churn,customers,median_tenure,upper_whisker,lower_whisker,n_beyond
+Month-to-month,No,2220,16,75,-37,0
+Month-to-month,Yes,1655,7,49.5,-26.5,79
+One year,No,1307,43,106,-22,0
+One year,Yes,166,48,98,-6,0
+Two year,No,1647,64,105.5,13.5,79
+Two year,Yes,48,65.5,91.375,34.375,2

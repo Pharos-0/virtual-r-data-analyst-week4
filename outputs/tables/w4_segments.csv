@@ -1,0 +1,15 @@
+Contract,InternetService,tenure_group,customers,churned,churn_rate
+Month-to-month,Fiber optic,Tenure 0-12 m,916,643,0.7019650655021834
+Month-to-month,Fiber optic,Tenure 13+ m,1212,519,0.4282178217821782
+Month-to-month,DSL,Tenure 0-12 m,690,293,0.4246376811594203
+Month-to-month,No,Tenure 0-12 m,388,88,0.2268041237113402
+One year,Fiber optic,Tenure 13+ m,532,102,0.19172932330827067
+Month-to-month,DSL,Tenure 13+ m,533,101,0.1894934333958724
+One year,DSL,Tenure 13+ m,528,46,0.08712121212121213
+Month-to-month,No,Tenure 13+ m,136,11,0.08088235294117647
+Two year,Fiber optic,Tenure 13+ m,429,31,0.07226107226107226
+One year,No,Tenure 0-12 m,75,4,0.05333333333333334
+Two year,DSL,Tenure 13+ m,610,12,0.019672131147540985
+One year,No,Tenure 13+ m,289,5,0.01730103806228374
+Two year,No,Tenure 13+ m,588,5,0.008503401360544218
+Two year,No,Tenure 0-12 m,50,0,0

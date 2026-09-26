@@ -1,0 +1,11 @@
+$ Rscript run_all.R
+Started: 2026-09-26 22:05:39
+Running 7 scripts with R version 4.3.3 (2024-02-29)
+  R/01_data_import.R               OK         0.6 s   log: outputs/logs/01_data_import_console.txt
+  R/02_data_cleaning.R             OK         0.3 s   log: outputs/logs/02_data_cleaning_console.txt
+  R/03_eda.R                       OK         1.5 s   log: outputs/logs/03_eda_console.txt
+  R/04_visualization.R             OK         2.0 s   log: outputs/logs/04_visualization_console.txt
+  R/05_statistical_analysis.R      OK         1.0 s   log: outputs/logs/05_statistical_analysis_console.txt
+  R/06_predictive_model.R          OK       223.6 s   log: outputs/logs/06_predictive_model_console.txt
+  R/07_final_analysis.R            OK         0.5 s   log: outputs/logs/07_final_analysis_console.txt
+Total time: 229.5 s; failures: 0

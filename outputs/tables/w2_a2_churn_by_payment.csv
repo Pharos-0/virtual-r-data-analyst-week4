@@ -1,0 +1,9 @@
+PaymentMethod,Churn,n,share
+Bank transfer (automatic),No,1286,0.832901554404145
+Bank transfer (automatic),Yes,258,0.16709844559585493
+Credit card (automatic),No,1290,0.8475689881734559
+Credit card (automatic),Yes,232,0.15243101182654403
+Electronic check,No,1294,0.5471458773784356
+Electronic check,Yes,1071,0.4528541226215645
+Mailed check,No,1304,0.8089330024813896
+Mailed check,Yes,308,0.19106699751861042

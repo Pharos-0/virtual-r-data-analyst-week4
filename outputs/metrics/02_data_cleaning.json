@@ -1,0 +1,16 @@
+{
+  "cor_tc_expected": 0.999559857286799,
+  "n_cols_clean": 21,
+  "n_factor_cols": 17,
+  "n_missing_after": 0,
+  "n_missing_total_before": 11,
+  "n_missing_totalcharges": 11,
+  "n_rows_clean": 7043,
+  "n_tenure_zero": 11,
+  "n_vars_with_missing_before": 1,
+  "n_ws_issue_values": 0,
+  "n_ws_issue_vars": 0,
+  "pct_missing_totalcharges": 0.156,
+  "tc_mean_observed": 2283.30044084187,
+  "tc_median_observed": 1397.475
+}

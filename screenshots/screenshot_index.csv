@@ -1,0 +1,49 @@
+id,type,week,title,file,source,ok
+w1_ss01_dataset_import,console,1,"Download check, import, dim() and names()",screenshots/w1_ss01_dataset_import.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss02_head_tail,console,1,head() and tail() of eight key columns,screenshots/w1_ss02_head_tail.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss02b_head_tail_full,console,1,head() and tail() of all 21 columns,screenshots/w1_ss02b_head_tail_full.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss03_str_raw,console,1,str() of the raw data,screenshots/w1_ss03_str_raw.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss04_summary_raw,console,1,summary() of the raw data,screenshots/w1_ss04_summary_raw.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss05_type_check,console,1,Data type check,screenshots/w1_ss05_type_check.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss06_totalcharges_duplicates,console,1,TotalCharges raw values and duplicate checks,screenshots/w1_ss06_totalcharges_duplicates.png,outputs/logs/01_data_import_console.txt,TRUE
+w1_ss07_missing_values,console,1,Missing values per column (count and %),screenshots/w1_ss07_missing_values.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss08_missing_pattern,console,1,Pattern of the missing TotalCharges values,screenshots/w1_ss08_missing_pattern.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss09_missing_treatment,console,1,Missing-value treatment: options and before/after check,screenshots/w1_ss09_missing_treatment.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss10_type_conversion,console,1,Type conversion and factor checks,screenshots/w1_ss10_type_conversion.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss11_str_clean,console,1,str() of the cleaned data,screenshots/w1_ss11_str_clean.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss12_summary_clean,console,1,summary() of the cleaned data and validation checks,screenshots/w1_ss12_summary_clean.png,outputs/logs/02_data_cleaning_console.txt,TRUE
+w1_ss13_outliers_iqr_z,console,1,Outlier detection: IQR rule and z-scores,screenshots/w1_ss13_outliers_iqr_z.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss14_outliers_context,console,1,"Group-wise and contextual outlier checks, treatment decision",screenshots/w1_ss14_outliers_context.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss15_scaling,console,1,Min-max normalisation and z-score standardisation,screenshots/w1_ss15_scaling.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss16_encoding,console,1,"Dummy and one-hot encoding, redundancy check",screenshots/w1_ss16_encoding.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss17_descriptive,console,1,"Descriptive statistics: summaries by churn, mean(), median(), sd(), quantile()",screenshots/w1_ss17_descriptive.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss18_frequencies,console,1,table() frequencies and churn by category,screenshots/w1_ss18_frequencies.png,outputs/logs/03_eda_console.txt,TRUE
+w1_ss19_correlation,console,1,"Pearson and Spearman correlation matrices, Cramer's V",screenshots/w1_ss19_correlation.png,outputs/logs/03_eda_console.txt,TRUE
+w2_ss01_code_bar_chart,source,2,ggplot2 code for the bar chart (V1),screenshots/w2_ss01_code_bar_chart.png,R/04_visualization.R,TRUE
+w2_ss02_code_line_chart,source,2,ggplot2 code for the line chart (V4),screenshots/w2_ss02_code_line_chart.png,R/04_visualization.R,TRUE
+w2_ss03_console_bar_scatter,console,2,"Data behind the bar chart, scatter plot and histogram",screenshots/w2_ss03_console_bar_scatter.png,outputs/logs/04_visualization_console.txt,TRUE
+w2_ss04_console_line_chart,console,2,Churn rate by tenure band and contract (data for V4),screenshots/w2_ss04_console_line_chart.png,outputs/logs/04_visualization_console.txt,TRUE
+w2_ss05_console_additional,console,2,"Data behind the stacked bar, box/violin and heatmap",screenshots/w2_ss05_console_additional.png,outputs/logs/04_visualization_console.txt,TRUE
+w2_ss06_console_saved_figures,console,2,Add-on and tenure-outlier summaries; figures written by ggsave(),screenshots/w2_ss06_console_saved_figures.png,outputs/logs/04_visualization_console.txt,TRUE
+w2_ss07_interactive_chart,html,2,Interactive plotly version of the scatter plot,screenshots/w2_ss07_interactive_chart.png,outputs/interactive/w2_interactive_scatter.html,TRUE
+w3_ss00_summary_statistics,console,3,Class balance and summary statistics by churn status,screenshots/w3_ss00_summary_statistics.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss01_normality_variance,console,3,"Normality (Anderson-Darling, Shapiro-Wilk) and Levene tests",screenshots/w3_ss01_normality_variance.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss02_chisq_contract,console,3,"H1: chi-square test, contract type vs churn",screenshots/w3_ss02_chisq_contract.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss03_ttest_wilcoxon,console,3,H2 Welch t-test and H3 Wilcoxon rank-sum tests,screenshots/w3_ss03_ttest_wilcoxon.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss04_anova,console,3,"H4: ANOVA, Welch ANOVA and Kruskal-Wallis",screenshots/w3_ss04_anova.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss05_test_summary,console,3,All hypothesis tests with Holm-adjusted p-values,screenshots/w3_ss05_test_summary.png,outputs/logs/05_statistical_analysis_console.txt,TRUE
+w3_ss06_split_vif,console,3,Stratified split and VIF check with all predictors,screenshots/w3_ss06_split_vif.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss06b_vif_reduced_folds,console,3,VIF of the reduced logistic model and churn rate per CV fold,screenshots/w3_ss06b_vif_reduced_folds.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss07_training_logistic,console,3,Model 1 training: logistic regression with 10-fold CV,screenshots/w3_ss07_training_logistic.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss08_logistic_summary,console,3,Model 1 summary: glm coefficients,screenshots/w3_ss08_logistic_summary.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss09_training_rf,console,3,Model 2 training: random forest tuning with 10-fold CV,screenshots/w3_ss09_training_rf.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss10_cv_comparison,console,3,Cross-validated comparison of the models,screenshots/w3_ss10_cv_comparison.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss11_confusion_logistic,console,3,Confusion matrix and statistics: logistic regression (test set),screenshots/w3_ss11_confusion_logistic.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss12_confusion_rf_auc,console,3,"Confusion matrix (random forest), ROC-AUC and DeLong test",screenshots/w3_ss12_confusion_rf_auc.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss13_threshold_metrics,console,3,Threshold chosen on out-of-fold predictions and test-set metrics,screenshots/w3_ss13_threshold_metrics.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss14_diagnostics,console,3,"Diagnostics: Hosmer-Lemeshow, Cook's distance, binned residuals, calibration",screenshots/w3_ss14_diagnostics.png,outputs/logs/06_predictive_model_console.txt,TRUE
+w3_ss15_importance_gains,console,3,Random forest permutation importance and cumulative gains,screenshots/w3_ss15_importance_gains.png,outputs/logs/06_predictive_model_console.txt,TRUE
+pipeline_run,textfile,NA,Complete pipeline run (run_all.R),screenshots/pipeline_run.png,outputs/logs/run_all_console.txt,TRUE
+w4_ss02_driver_evidence,console,4,Driver evidence combined across Weeks 1-3,screenshots/w4_ss02_driver_evidence.png,outputs/logs/07_final_analysis_console.txt,TRUE
+w4_ss03_segments_deciles,console,4,Customer segments and predicted-risk deciles,screenshots/w4_ss03_segments_deciles.png,outputs/logs/07_final_analysis_console.txt,TRUE
+w4_ss04_headline,console,4,Headline numbers for the final report,screenshots/w4_ss04_headline.png,outputs/logs/07_final_analysis_console.txt,TRUE

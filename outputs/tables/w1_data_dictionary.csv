@@ -1,0 +1,22 @@
+variable,description,raw_type,n_unique,role
+customerID,Unique customer identifier,character,7043,Identifier
+gender,"Customer gender (Female, Male)",character,2,Predictor
+SeniorCitizen,"Whether the customer is a senior citizen (1 = yes, 0 = no)",integer,2,Predictor
+Partner,Whether the customer has a partner,character,2,Predictor
+Dependents,Whether the customer has dependents,character,2,Predictor
+tenure,Number of months the customer has been with the company,integer,73,Predictor
+PhoneService,Whether the customer has a phone service,character,2,Predictor
+MultipleLines,"Whether the customer has multiple lines (Yes, No, No phone service)",character,3,Predictor
+InternetService,"Internet service type (DSL, Fiber optic, No)",character,3,Predictor
+OnlineSecurity,"Online security add-on (Yes, No, No internet service)",character,3,Predictor
+OnlineBackup,"Online backup add-on (Yes, No, No internet service)",character,3,Predictor
+DeviceProtection,"Device protection add-on (Yes, No, No internet service)",character,3,Predictor
+TechSupport,"Technical support add-on (Yes, No, No internet service)",character,3,Predictor
+StreamingTV,"Streaming TV add-on (Yes, No, No internet service)",character,3,Predictor
+StreamingMovies,"Streaming movies add-on (Yes, No, No internet service)",character,3,Predictor
+Contract,"Contract term (Month-to-month, One year, Two year)",character,3,Predictor
+PaperlessBilling,Whether the customer uses paperless billing,character,2,Predictor
+PaymentMethod,Payment method (four categories),character,4,Predictor
+MonthlyCharges,Amount currently charged to the customer each month,numeric,1585,Predictor
+TotalCharges,Total amount charged to the customer over their tenure,numeric,6531,Predictor
+Churn,"Target: whether the customer left in the last month (Yes, No)",character,2,Target

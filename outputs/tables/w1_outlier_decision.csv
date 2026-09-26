@@ -1,0 +1,6 @@
+check,flagged,treatment
+"tenure (IQR, z)",0,"Retained - values are plausible billing records, not entry errors"
+"MonthlyCharges (IQR, z)",0,"Retained - values are plausible billing records, not entry errors"
+"TotalCharges (IQR, z)",0,"Retained - values are plausible billing records, not entry errors"
+TotalCharges vs tenure x MonthlyCharges,684,"Retained - values are plausible billing records, not entry errors"
+MonthlyCharges within internet type,342,"Retained - values are plausible billing records, not entry errors"

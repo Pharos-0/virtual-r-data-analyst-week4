@@ -1,0 +1,6 @@
+variable,tenure,MonthlyCharges,TotalCharges,AddOnServices,ChurnYes
+tenure,1,0.2764,0.8897,0.4705,-0.3671
+MonthlyCharges,0.2764,1,0.638,0.7436,0.1847
+TotalCharges,0.8897,0.638,1,0.7164,-0.23
+AddOnServices,0.4705,0.7436,0.7164,1,-0.06
+ChurnYes,-0.3671,0.1847,-0.23,-0.06,1

@@ -1,0 +1,352 @@
+# =============================================================================
+# 04_visualization.R
+# Week 2: visual analysis of the cleaned Telco data with ggplot2.
+# Each chart answers one question in the Week 2 visual story:
+#   Q1 Who are the customers?            -> A1 profile, V3 histogram
+#   Q2 Which variables separate churners? -> V1 bar chart, A3 density, A6 add-ons
+#   Q3 Which numeric variables are related? -> V2 scatter plot
+#   Q4 Are there patterns across tenure?  -> V4 line chart
+#   Q5 Which groups have very different outcomes? -> A2 stacked bar, A4, A5 heatmap
+#   Q6 Are there unusual observations?    -> A4 box/violin, A7 tenure outliers
+# The data behind every chart is printed so the console transcript documents it.
+# =============================================================================
+source("R/00_setup.R")
+load_packages(c("plotly", "htmlwidgets"))
+
+telco <- as_tibble(readRDS(file.path(paths$processed, "telco_clean.rds")))
+overall_rate <- mean(telco$Churn == "Yes")
+churn_labels <- c(No = "Retained", Yes = "Churned")
+record("w2_overall_churn_rate", overall_rate)
+
+# ---- 4.1 V1 Bar chart: churn rate by contract type ----
+v1_data <- telco %>%
+  group_by(Contract) %>%
+  summarise(customers = n(), churned = sum(Churn == "Yes"), churn_rate = churned / customers)
+v1_data
+
+v1 <- ggplot(v1_data, aes(x = Contract, y = churn_rate)) +
+  geom_col(fill = col_accent, width = 0.6) +
+  geom_hline(yintercept = overall_rate, linetype = "dashed", colour = col_muted) +
+  annotate("text", x = 3.45, y = overall_rate, label = paste("All customers:", pct(overall_rate)),
+           hjust = 1, vjust = -0.6, size = 3.2, colour = col_muted) +
+  geom_text(aes(label = pct(churn_rate)), vjust = -0.5, size = 3.6, colour = col_text) +
+  scale_x_discrete(labels = function(x) paste0(x, "\n(n = ", comma(v1_data$customers), ")")) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 0.5),
+                     expand = expansion(mult = c(0, 0.02))) +
+  labs(title = sprintf("Month-to-month customers churn at %s, two-year customers at %s",
+                       pct(v1_data$churn_rate[1]), pct(v1_data$churn_rate[3])),
+       subtitle = "Share of customers in each contract type who churned",
+       x = "Contract type", y = "Churn rate")
+save_plot(v1, "w2_v1_bar_churn_by_contract", width = 6.8, height = 4.2)
+
+# ---- 4.2 V2 Scatter plot: tenure vs monthly charges ----
+v2_data <- telco %>%
+  mutate(status = factor(churn_labels[as.character(Churn)], levels = churn_labels))
+v2_summary <- v2_data %>%
+  group_by(status) %>%
+  summarise(customers = n(),
+            share_tenure_le12_mc_gt70 = mean(tenure <= 12 & MonthlyCharges > 70),
+            cor_tenure_mc = cor(tenure, MonthlyCharges),
+            median_tenure = median(tenure), median_monthly = median(MonthlyCharges))
+v2_summary
+cor.test(telco$tenure, telco$MonthlyCharges)$estimate
+
+facet_names <- setNames(paste0(v2_summary$status, " (n = ", comma(v2_summary$customers), ")"),
+                        v2_summary$status)
+v2 <- ggplot(v2_data, aes(x = tenure, y = MonthlyCharges, colour = Churn)) +
+  annotate("rect", xmin = -Inf, xmax = 12, ymin = 70, ymax = Inf, fill = "#EEF2F7") +
+  geom_point(alpha = 0.35, size = 0.9) +
+  facet_wrap(~ status, labeller = as_labeller(facet_names)) +
+  scale_colour_manual(values = pal_churn, guide = "none") +
+  labs(title = sprintf("%s of churned customers had tenure <= 12 months and charges > 70",
+                       pct(v2_summary$share_tenure_le12_mc_gt70[2], 0)),
+       subtitle = sprintf("Shaded area: tenure <= 12 months and monthly charges > 70 (retained: %s)",
+                          pct(v2_summary$share_tenure_le12_mc_gt70[1], 0)),
+       x = "Tenure (months)", y = "Monthly charges")
+save_plot(v2, "w2_v2_scatter_tenure_monthly", width = 7, height = 4.2)
+
+# Interactive version of the scatter plot (hover shows customer details)
+v2_interactive <- plotly::plot_ly(
+  v2_data, x = ~tenure, y = ~MonthlyCharges, color = ~status,
+  colors = unname(pal_churn), type = "scatter", mode = "markers",
+  marker = list(size = 5, opacity = 0.5),
+  text = ~paste0("Customer: ", customerID, "<br>Contract: ", Contract,
+                 "<br>Internet: ", InternetService, "<br>Tenure: ", tenure,
+                 " months<br>Monthly charges: ", MonthlyCharges),
+  hoverinfo = "text") %>%
+  plotly::layout(title = list(text = "Tenure vs monthly charges (hover for customer details)",
+                              y = 0.97),
+                 margin = list(t = 60),
+                 xaxis = list(title = "Tenure (months)"),
+                 yaxis = list(title = "Monthly charges"))
+interactive_dir <- file.path("outputs", "interactive")
+dir.create(interactive_dir, showWarnings = FALSE, recursive = TRUE)
+htmlwidgets::saveWidget(v2_interactive, file.path(interactive_dir, "w2_interactive_scatter.html"),
+                        selfcontained = FALSE, libdir = "lib", title = "Telco churn scatter")
+
+# ---- 4.3 V3 Histogram: tenure distribution by churn status ----
+v3_summary <- v2_data %>%
+  group_by(status) %>%
+  summarise(customers = n(), tenure_le_12 = sum(tenure <= 12),
+            share_le_12 = mean(tenure <= 12), share_ge_60 = mean(tenure >= 60))
+v3_summary
+
+v3 <- ggplot(v2_data, aes(x = tenure, fill = Churn)) +
+  geom_histogram(binwidth = 3, boundary = 0, colour = "white", linewidth = 0.2) +
+  facet_wrap(~ status, ncol = 1, labeller = as_labeller(facet_names)) +
+  scale_fill_manual(values = pal_churn, guide = "none") +
+  scale_x_continuous(breaks = seq(0, 72, 12)) +
+  labs(title = sprintf("%s of churned customers left within their first 12 months",
+                       pct(v3_summary$share_le_12[2], 0)),
+       subtitle = "Distribution of tenure, 3-month bins",
+       x = "Tenure (months)", y = "Customers")
+save_plot(v3, "w2_v3_histogram_tenure", width = 7, height = 4.6)
+
+# ---- 4.4 V4 Line chart: churn rate across tenure by contract ----
+v4_data <- telco %>%
+  mutate(tenure_bin = cut(tenure, breaks = seq(0, 72, 6), include.lowest = TRUE),
+         bin_mid = (as.integer(tenure_bin) - 1) * 6 + 3) %>%
+  group_by(Contract, tenure_bin, bin_mid) %>%
+  summarise(customers = n(), churn_rate = mean(Churn == "Yes"), .groups = "drop")
+print(v4_data %>% select(-bin_mid) %>%
+        pivot_wider(names_from = Contract, values_from = c(customers, churn_rate)) %>%
+        mutate(across(starts_with("churn_rate"), ~ round(.x, 3))), width = 110)
+
+min_n <- 30   # points based on fewer customers are not drawn
+v4_plot_data <- filter(v4_data, customers >= min_n)
+v4_labels <- v4_plot_data %>% group_by(Contract) %>% slice_max(bin_mid, n = 1)
+v4 <- ggplot(v4_plot_data, aes(x = bin_mid, y = churn_rate, colour = Contract)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2) +
+  geom_text(data = v4_labels, aes(label = Contract), hjust = -0.12, size = 3.3,
+            show.legend = FALSE) +
+  scale_colour_manual(values = rev(pal_ordinal)) +
+  scale_x_continuous(breaks = seq(0, 72, 12), limits = c(0, 86)) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, NA)) +
+  labs(title = sprintf("Month-to-month churn falls from %s to %s across tenure but stays highest",
+                       pct(v4_data$churn_rate[v4_data$Contract == "Month-to-month" & v4_data$bin_mid == 3]),
+                       pct(v4_data$churn_rate[v4_data$Contract == "Month-to-month" & v4_data$bin_mid == 69])),
+       subtitle = sprintf("Churn rate by 6-month tenure band; bands with fewer than %d customers omitted",
+                          min_n),
+       x = "Tenure band midpoint (months)", y = "Churn rate", colour = "Contract")
+save_plot(v4, "w2_v4_line_churn_by_tenure", width = 7, height = 4.3)
+
+# ---- 4.5 A1 Customer profile (faceted bar chart) ----
+profile_vars <- c("gender", "SeniorCitizen", "Partner", "Dependents", "PhoneService",
+                  "InternetService", "Contract", "PaperlessBilling", "PaymentMethod")
+a1_data <- map_dfr(profile_vars, function(v) {
+  telco %>% count(level = .data[[v]]) %>%
+    mutate(variable = v, share = n / sum(n), level = as.character(level))
+}) %>% mutate(variable = factor(variable, levels = profile_vars))
+a1_data %>% mutate(share = round(share, 3)) %>% print(n = Inf)
+
+a1 <- ggplot(a1_data, aes(x = share, y = fct_reorder(level, share))) +
+  geom_col(fill = col_accent, width = 0.7) +
+  geom_text(aes(label = pct(share, 0)), hjust = -0.15, size = 2.7, colour = col_text) +
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  scale_x_continuous(labels = label_percent(), limits = c(0, 1.08),
+                     breaks = c(0, 0.5, 1)) +
+  labs(title = "Profile of the 7,043 customers",
+       subtitle = "Share of customers in each category",
+       x = "Share of customers", y = NULL) +
+  theme(axis.text.y = element_text(size = 7.5), strip.text = element_text(size = 8.5))
+save_plot(a1, "w2_a1_customer_profile", width = 7.2, height = 6)
+
+# ---- 4.6 A2 Stacked bar: churn by payment method ----
+a2_data <- telco %>%
+  count(PaymentMethod, Churn) %>%
+  group_by(PaymentMethod) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup()
+a2_data
+a2_order <- a2_data %>% filter(Churn == "Yes") %>% arrange(share) %>% pull(PaymentMethod)
+
+a2 <- ggplot(a2_data, aes(x = share, y = factor(PaymentMethod, levels = a2_order),
+                          fill = factor(Churn, levels = c("No", "Yes")))) +
+  geom_col(width = 0.6, colour = "white", linewidth = 0.4,
+           position = position_stack(reverse = TRUE)) +
+  geom_text(data = filter(a2_data, Churn == "Yes"),
+            aes(x = 1 - share / 2, label = pct(share)), colour = "white", size = 3.3) +
+  scale_fill_manual(values = pal_churn, labels = churn_labels, name = NULL) +
+  scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.01))) +
+  labs(title = with(filter(a2_data, Churn == "Yes"),
+                    sprintf("Electronic-check payers churn at %s, other methods at %s-%s",
+                            pct(share[PaymentMethod == "Electronic check"]),
+                            pct(min(share[PaymentMethod != "Electronic check"]), 0),
+                            pct(max(share[PaymentMethod != "Electronic check"]), 0))),
+       subtitle = "Composition of each payment-method group by churn status",
+       x = "Share of customers", y = NULL)
+save_plot(a2, "w2_a2_stacked_payment_method", width = 7, height = 3.6)
+
+# ---- 4.7 A3 Density plot: monthly charges by churn status ----
+a3_summary <- v2_data %>%
+  group_by(status) %>%
+  summarise(median = median(MonthlyCharges), share_gt_70 = mean(MonthlyCharges > 70),
+            share_lt_30 = mean(MonthlyCharges < 30))
+a3_summary
+
+a3 <- ggplot(v2_data, aes(x = MonthlyCharges, fill = Churn, colour = Churn)) +
+  geom_density(alpha = 0.35, linewidth = 0.7, adjust = 0.8) +
+  scale_fill_manual(values = pal_churn, labels = churn_labels, name = NULL) +
+  scale_colour_manual(values = pal_churn, labels = churn_labels, name = NULL) +
+  labs(title = sprintf("%s of churned customers pay over 70 a month vs %s of retained customers",
+                       pct(a3_summary$share_gt_70[2], 0), pct(a3_summary$share_gt_70[1], 0)),
+       subtitle = "Density of monthly charges (each curve integrates to 1)",
+       x = "Monthly charges", y = "Density")
+save_plot(a3, "w2_a3_density_monthly_charges", width = 7, height = 4)
+
+# ---- 4.8 A4 Box and violin plot: monthly charges by internet service and churn ----
+a4_summary <- telco %>%
+  group_by(InternetService, Churn) %>%
+  summarise(customers = n(), median = median(MonthlyCharges),
+            q1 = quantile(MonthlyCharges, 0.25), q3 = quantile(MonthlyCharges, 0.75),
+            beyond_whiskers = sum(MonthlyCharges > q3 + 1.5 * (q3 - q1) |
+                                    MonthlyCharges < q1 - 1.5 * (q3 - q1)))
+a4_summary
+
+a4 <- ggplot(telco, aes(x = InternetService, y = MonthlyCharges, fill = Churn)) +
+  geom_violin(position = position_dodge(0.8), alpha = 0.25, colour = NA, scale = "width") +
+  geom_boxplot(position = position_dodge(0.8), width = 0.22, outlier.size = 0.8,
+               colour = col_text, outlier.colour = col_text) +
+  scale_fill_manual(values = pal_churn, labels = churn_labels, name = NULL) +
+  labs(title = "Within DSL and fibre service, churned customers pay less than retained ones",
+       subtitle = "Violin = distribution shape, box = median and IQR, points = beyond 1.5 x IQR",
+       x = "Internet service", y = "Monthly charges")
+save_plot(a4, "w2_a4_violin_charges_internet", width = 7, height = 4.2)
+
+# ---- 4.9 A5 Heatmap: churn rate by contract and internet service ----
+a5_data <- telco %>%
+  group_by(Contract, InternetService) %>%
+  summarise(customers = n(), churn_rate = mean(Churn == "Yes"), .groups = "drop")
+a5_data
+
+a5 <- ggplot(a5_data, aes(x = InternetService, y = Contract, fill = churn_rate)) +
+  geom_tile(colour = "white", linewidth = 1.2) +
+  geom_text(aes(label = paste0(pct(churn_rate), "\nn = ", comma(customers)),
+                colour = churn_rate > 0.3), size = 3.3, lineheight = 0.9) +
+  scale_fill_gradient(low = "#F2F5F9", high = col_accent, labels = label_percent(),
+                      name = "Churn rate") +
+  scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = col_text), guide = "none") +
+  scale_y_discrete(limits = rev) +
+  labs(title = sprintf("Fibre customers on month-to-month contracts churn at %s",
+                       pct(a5_data$churn_rate[a5_data$Contract == "Month-to-month" &
+                                                a5_data$InternetService == "Fiber optic"])),
+       subtitle = "Churn rate for each combination of contract and internet service",
+       x = "Internet service", y = "Contract") +
+  theme(panel.grid = element_blank(), legend.position = "right")
+save_plot(a5, "w2_a5_heatmap_contract_internet", width = 6.8, height = 3.8)
+
+# ---- 4.10 A6 Faceted bars: churn rate by add-on service (internet customers) ----
+addon_vars <- c("OnlineSecurity", "TechSupport", "OnlineBackup", "DeviceProtection",
+                "StreamingTV", "StreamingMovies")
+a6_data <- map_dfr(addon_vars, function(v) {
+  telco %>%
+    filter(InternetService != "No") %>%
+    group_by(subscribed = .data[[v]]) %>%
+    summarise(customers = n(), churn_rate = mean(Churn == "Yes"), .groups = "drop") %>%
+    mutate(service = v, subscribed = droplevels(subscribed))
+}) %>% mutate(service = factor(service, levels = addon_vars))
+a6_data
+
+a6 <- ggplot(a6_data, aes(x = subscribed, y = churn_rate)) +
+  geom_col(fill = col_accent, width = 0.6) +
+  geom_text(aes(label = pct(churn_rate, 0)), vjust = -0.4, size = 3, colour = col_text) +
+  facet_wrap(~ service, nrow = 2) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 0.55),
+                     expand = expansion(mult = c(0, 0.02))) +
+  labs(title = "Churn is much lower with security and support add-ons; streaming differs little",
+       subtitle = "Churn rate by add-on subscription, internet customers only (n = 5,517)",
+       x = "Subscribed to the add-on", y = "Churn rate")
+save_plot(a6, "w2_a6_faceted_addons", width = 7, height = 4.6)
+
+# ---- 4.11 A7 Unusual observations: tenure by contract and churn ----
+a7_summary <- telco %>%
+  group_by(Contract, Churn) %>%
+  summarise(customers = n(), median_tenure = median(tenure),
+            upper_whisker = quantile(tenure, 0.75) + 1.5 * IQR(tenure),
+            lower_whisker = quantile(tenure, 0.25) - 1.5 * IQR(tenure),
+            n_beyond = sum(tenure > upper_whisker | tenure < lower_whisker), .groups = "drop")
+a7_summary
+
+a7 <- ggplot(telco, aes(x = Contract, y = tenure, fill = Churn)) +
+  geom_boxplot(position = position_dodge(0.75), width = 0.6, colour = col_text,
+               outlier.size = 1, outlier.alpha = 0.7) +
+  scale_fill_manual(values = pal_churn, labels = churn_labels, name = NULL) +
+  scale_y_continuous(breaks = seq(0, 72, 12)) +
+  labs(title = sprintf("%d customers sit beyond the whiskers of their contract/churn group",
+                       sum(a7_summary$n_beyond)),
+       subtitle = "Tenure by contract type and churn status; points = beyond 1.5 x IQR",
+       x = "Contract type", y = "Tenure (months)")
+save_plot(a7, "w2_a7_boxplot_tenure_contract", width = 7, height = 4.2)
+
+# ---- 4.12 Metrics for the report ----
+for (i in seq_len(nrow(v1_data))) {
+  key <- gsub("[^A-Za-z]", "", as.character(v1_data$Contract[i]))
+  record(paste0("w2_v1_rate_", key), v1_data$churn_rate[i])
+  record(paste0("w2_v1_n_", key), v1_data$customers[i])
+}
+record("w2_v2_share_quadrant_churned", v2_summary$share_tenure_le12_mc_gt70[2])
+record("w2_v2_share_quadrant_retained", v2_summary$share_tenure_le12_mc_gt70[1])
+record("w2_v2_cor_tenure_mc", cor(telco$tenure, telco$MonthlyCharges))
+record("w2_v2_cor_churned", v2_summary$cor_tenure_mc[2])
+record("w2_v2_cor_retained", v2_summary$cor_tenure_mc[1])
+record("w2_v3_share_le12_churned", v3_summary$share_le_12[2])
+record("w2_v3_share_le12_retained", v3_summary$share_le_12[1])
+record("w2_v3_n_le12_churned", v3_summary$tenure_le_12[2])
+record("w2_v3_share_ge60_churned", v3_summary$share_ge_60[2])
+record("w2_v3_share_ge60_retained", v3_summary$share_ge_60[1])
+v4_get <- function(ct, mid) v4_data$churn_rate[v4_data$Contract == ct & v4_data$bin_mid == mid]
+record("w2_v4_m2m_first", v4_get("Month-to-month", 3))
+record("w2_v4_m2m_last", v4_get("Month-to-month", 69))
+record("w2_v4_m2m_last_n", v4_data$customers[v4_data$Contract == "Month-to-month" & v4_data$bin_mid == 69])
+record("w2_v4_oneyear_last", v4_get("One year", 69))
+record("w2_v4_twoyear_last", v4_get("Two year", 69))
+record("w2_v4_n_points_omitted", sum(v4_data$customers < min_n))
+for (i in seq_len(nrow(a2_data))) if (a2_data$Churn[i] == "Yes") {
+  record(paste0("w2_a2_rate_", gsub("[^A-Za-z]", "", as.character(a2_data$PaymentMethod[i]))),
+         a2_data$share[i])
+}
+record("w2_a3_median_churned", a3_summary$median[2])
+record("w2_a3_median_retained", a3_summary$median[1])
+record("w2_a3_share_gt70_churned", a3_summary$share_gt_70[2])
+record("w2_a3_share_gt70_retained", a3_summary$share_gt_70[1])
+record("w2_a3_share_lt30_churned", a3_summary$share_lt_30[2])
+record("w2_a3_share_lt30_retained", a3_summary$share_lt_30[1])
+for (i in seq_len(nrow(a4_summary))) {
+  key <- paste0(gsub("[^A-Za-z]", "", as.character(a4_summary$InternetService[i])), "_",
+                a4_summary$Churn[i])
+  record(paste0("w2_a4_median_", key), a4_summary$median[i])
+  record(paste0("w2_a4_beyond_", key), a4_summary$beyond_whiskers[i])
+}
+for (i in seq_len(nrow(a5_data))) {
+  key <- paste0(gsub("[^A-Za-z]", "", as.character(a5_data$Contract[i])), "_",
+                gsub("[^A-Za-z]", "", as.character(a5_data$InternetService[i])))
+  record(paste0("w2_a5_rate_", key), a5_data$churn_rate[i])
+  record(paste0("w2_a5_n_", key), a5_data$customers[i])
+}
+for (i in seq_len(nrow(a6_data))) {
+  record(paste0("w2_a6_rate_", a6_data$service[i], "_", a6_data$subscribed[i]), a6_data$churn_rate[i])
+}
+record("w2_a6_n_internet", sum(telco$InternetService != "No"))
+record("w2_a5_share_churners_m2m_fibre",
+       with(telco, sum(Churn == "Yes" & Contract == "Month-to-month" & InternetService == "Fiber optic") /
+              sum(Churn == "Yes")))
+record("w2_a5_share_customers_m2m_fibre",
+       with(telco, mean(Contract == "Month-to-month" & InternetService == "Fiber optic")))
+record("w2_a7_n_beyond", sum(a7_summary$n_beyond))
+for (i in seq_len(nrow(a7_summary))) {
+  key <- paste0(gsub("[^A-Za-z]", "", as.character(a7_summary$Contract[i])), "_", a7_summary$Churn[i])
+  record(paste0("w2_a7_beyond_", key), a7_summary$n_beyond[i])
+  record(paste0("w2_a7_median_", key), a7_summary$median_tenure[i])
+}
+for (i in seq_len(nrow(a1_data))) {
+  record(paste0("w2_a1_share_", a1_data$variable[i], "_", gsub("[^A-Za-z]", "", a1_data$level[i])),
+         a1_data$share[i])
+}
+save_table(v1_data, "w2_v1_churn_by_contract")
+save_table(v4_data, "w2_v4_churn_by_tenure_contract")
+save_table(a2_data, "w2_a2_churn_by_payment")
+save_table(a5_data, "w2_a5_churn_contract_internet")
+save_table(a6_data, "w2_a6_churn_by_addon")
+save_table(a7_summary, "w2_a7_tenure_outliers")
+write_metrics("04_visualization")

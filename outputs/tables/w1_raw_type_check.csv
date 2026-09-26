@@ -1,0 +1,22 @@
+variable,r_class,n_unique,example
+customerID,character,7043,7590-VHVEG
+gender,character,2,Female
+SeniorCitizen,integer,2,0
+Partner,character,2,Yes
+Dependents,character,2,No
+tenure,integer,73,1
+PhoneService,character,2,No
+MultipleLines,character,3,No phone service
+InternetService,character,3,DSL
+OnlineSecurity,character,3,No
+OnlineBackup,character,3,Yes
+DeviceProtection,character,3,No
+TechSupport,character,3,No
+StreamingTV,character,3,No
+StreamingMovies,character,3,No
+Contract,character,3,Month-to-month
+PaperlessBilling,character,2,Yes
+PaymentMethod,character,4,Electronic check
+MonthlyCharges,numeric,1585,29.85
+TotalCharges,numeric,6531,29.85
+Churn,character,2,No

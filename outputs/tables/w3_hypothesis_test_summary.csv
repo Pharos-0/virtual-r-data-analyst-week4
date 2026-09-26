@@ -1,0 +1,9 @@
+hypothesis,question,test,statistic,p_value,effect_size,p_holm,decision
+H1,Contract type vs churn,Pearson chi-square,1184.5965720837926,5.863038300673409e-258,Cramer's V = 0.410,4.104126810471386e-257,Reject H0
+H2,Monthly charges: churned vs retained,Welch two-sample t-test,-18.407526676414676,8.592449331546588e-73,Cohen's d = 0.45,2.577734799463976e-72,Reject H0
+H3,Tenure: churned vs retained,Wilcoxon rank-sum,7154668,2.4196355179519562e-208,rank-biserial r = 0.48,1.4517813107711737e-207,Reject H0
+H4,Monthly charges across internet types,Welch one-way ANOVA,50068.85719326011,0,eta-squared = 0.821,0,Reject H0
+H5,Tenure vs monthly charges,Pearson correlation,21.47166605188076,4.094044991482731e-99,r = 0.248,1.6376179965930924e-98,Reject H0
+H6,Payment method vs churn,Pearson chi-square,648.1423274814001,3.682354652009577e-140,Cramer's V = 0.303,1.8411773260047885e-139,Reject H0
+H7,Senior citizen vs churn,Two-proportion test (chi-square),159.42630036838742,1.5100668050923668e-36,diff = 0.181,3.0201336101847336e-36,Reject H0
+H8,Gender vs churn,Pearson chi-square (Yates),0.4840828822091383,0.48657873605618596,Cramer's V = 0.008,0.48657873605618596,Fail to reject H0

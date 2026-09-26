@@ -1,0 +1,9 @@
+item,value
+Customers analysed,"7,043"
+Overall churn rate,26.5%
+Month-to-month churn rate,42.7%
+Two-year contract churn rate,2.8%
+"Hypotheses rejected (of 8, Holm-adjusted)",7
+"Test ROC-AUC, logistic regression",0.853
+"Test ROC-AUC, random forest",0.855
+Churners reached in top 20% of predicted risk (logistic),53%

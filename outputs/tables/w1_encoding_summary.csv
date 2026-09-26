@@ -1,0 +1,18 @@
+variable,n_levels,reference,dummy_columns
+gender,2,Female,1
+SeniorCitizen,2,No,1
+Partner,2,No,1
+Dependents,2,No,1
+PhoneService,2,No,1
+MultipleLines,3,No,2
+InternetService,3,DSL,2
+OnlineSecurity,3,No,2
+OnlineBackup,3,No,2
+DeviceProtection,3,No,2
+TechSupport,3,No,2
+StreamingTV,3,No,2
+StreamingMovies,3,No,2
+Contract,3,Month-to-month,2
+PaperlessBilling,2,No,1
+PaymentMethod,4,Bank transfer (automatic),3
+Churn,2,No,1

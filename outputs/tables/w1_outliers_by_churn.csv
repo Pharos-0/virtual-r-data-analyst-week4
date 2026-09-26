@@ -1,0 +1,7 @@
+variable,Churn,upper_fence,n_above,n
+Tenure (months),No,130,0,5174
+Tenure (months),Yes,69.5,23,1869
+Monthly charges,No,183.35000000000002,0,5174
+Monthly charges,Yes,151.275,0,1869
+Total charges,No,9797.774999999998,0,5174
+Total charges,Yes,5626.5,109,1869

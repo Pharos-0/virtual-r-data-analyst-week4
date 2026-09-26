@@ -1,0 +1,346 @@
+> # =============================================================================
+> # 01_data_import.R
+> # Week 1 - Step 1: obtain the IBM Telco Customer Churn data and inspect the raw
+> # file before anything is changed: dimensions, names, head/tail, str(),
+> # summary(), data types, the target variable and duplicate records.
+> # =============================================================================
+> source("R/00_setup.R")
+> # ---- 1.1 Download the raw data (only if it is not already present) ----
+> if (!file.exists(paths$raw_data)) {
++   dir.create(dirname(paths$raw_data), recursive = TRUE, showWarnings = FALSE)
++   download.file(DATA_URL, destfile = paths$raw_data, mode = "wb")
++ }
+> file.size(paths$raw_data)                     # bytes on disk
+[1] 970457
+> unname(tools::md5sum(paths$raw_data))         # checksum used in reproducibility.md
+[1] "3b0bfab28a8101b4e4fdd08025a5c235"
+> # ---- 1.2 Import the raw CSV ----
+> # read.csv() with default settings: text stays as character (no factors yet)
+> # and R guesses a type for each column from its values.
+> telco_raw <- read.csv(paths$raw_data, stringsAsFactors = FALSE)
+> dim(telco_raw)
+[1] 7043   21
+> names(telco_raw)
+ [1] "customerID"       "gender"           "SeniorCitizen"    "Partner"          "Dependents"      
+ [6] "tenure"           "PhoneService"     "MultipleLines"    "InternetService"  "OnlineSecurity"  
+[11] "OnlineBackup"     "DeviceProtection" "TechSupport"      "StreamingTV"      "StreamingMovies" 
+[16] "Contract"         "PaperlessBilling" "PaymentMethod"    "MonthlyCharges"   "TotalCharges"    
+[21] "Churn"           
+> # ---- 1.3 First and last records ----
+> head(telco_raw, 5)
+  customerID gender SeniorCitizen Partner Dependents tenure PhoneService    MultipleLines
+1 7590-VHVEG Female             0     Yes         No      1           No No phone service
+2 5575-GNVDE   Male             0      No         No     34          Yes               No
+3 3668-QPYBK   Male             0      No         No      2          Yes               No
+4 7795-CFOCW   Male             0      No         No     45           No No phone service
+5 9237-HQITU Female             0      No         No      2          Yes               No
+  InternetService OnlineSecurity OnlineBackup DeviceProtection TechSupport StreamingTV
+1             DSL             No          Yes               No          No          No
+2             DSL            Yes           No              Yes          No          No
+3             DSL            Yes          Yes               No          No          No
+4             DSL            Yes           No              Yes         Yes          No
+5     Fiber optic             No           No               No          No          No
+  StreamingMovies       Contract PaperlessBilling             PaymentMethod MonthlyCharges
+1              No Month-to-month              Yes          Electronic check          29.85
+2              No       One year               No              Mailed check          56.95
+3              No Month-to-month              Yes              Mailed check          53.85
+4              No       One year               No Bank transfer (automatic)          42.30
+5              No Month-to-month              Yes          Electronic check          70.70
+  TotalCharges Churn
+1        29.85    No
+2      1889.50    No
+3       108.15   Yes
+4      1840.75    No
+5       151.65   Yes
+> tail(telco_raw, 5)
+     customerID gender SeniorCitizen Partner Dependents tenure PhoneService    MultipleLines
+7039 6840-RESVB   Male             0     Yes        Yes     24          Yes              Yes
+7040 2234-XADUH Female             0     Yes        Yes     72          Yes              Yes
+7041 4801-JZAZL Female             0     Yes        Yes     11           No No phone service
+7042 8361-LTMKD   Male             1     Yes         No      4          Yes              Yes
+7043 3186-AJIEK   Male             0      No         No     66          Yes               No
+     InternetService OnlineSecurity OnlineBackup DeviceProtection TechSupport StreamingTV
+7039             DSL            Yes           No              Yes         Yes         Yes
+7040     Fiber optic             No          Yes              Yes          No         Yes
+7041             DSL            Yes           No               No          No          No
+7042     Fiber optic             No           No               No          No          No
+7043     Fiber optic            Yes           No              Yes         Yes         Yes
+     StreamingMovies       Contract PaperlessBilling             PaymentMethod MonthlyCharges
+7039             Yes       One year              Yes              Mailed check          84.80
+7040             Yes       One year              Yes   Credit card (automatic)         103.20
+7041              No Month-to-month              Yes          Electronic check          29.60
+7042              No Month-to-month              Yes              Mailed check          74.40
+7043             Yes       Two year              Yes Bank transfer (automatic)         105.65
+     TotalCharges Churn
+7039      1990.50    No
+7040      7362.90    No
+7041       346.45    No
+7042       306.60   Yes
+7043      6844.50    No
+> # Compact view of eight key columns (easier to read than the 21-column output)
+> key_cols <- c("customerID", "gender", "tenure", "Contract", "InternetService",
++               "MonthlyCharges", "TotalCharges", "Churn")
+> head(telco_raw[, key_cols], 5)
+  customerID gender tenure       Contract InternetService MonthlyCharges TotalCharges Churn
+1 7590-VHVEG Female      1 Month-to-month             DSL          29.85        29.85    No
+2 5575-GNVDE   Male     34       One year             DSL          56.95      1889.50    No
+3 3668-QPYBK   Male      2 Month-to-month             DSL          53.85       108.15   Yes
+4 7795-CFOCW   Male     45       One year             DSL          42.30      1840.75    No
+5 9237-HQITU Female      2 Month-to-month     Fiber optic          70.70       151.65   Yes
+> tail(telco_raw[, key_cols], 5)
+     customerID gender tenure       Contract InternetService MonthlyCharges TotalCharges Churn
+7039 6840-RESVB   Male     24       One year             DSL          84.80      1990.50    No
+7040 2234-XADUH Female     72       One year     Fiber optic         103.20      7362.90    No
+7041 4801-JZAZL Female     11 Month-to-month             DSL          29.60       346.45    No
+7042 8361-LTMKD   Male      4 Month-to-month     Fiber optic          74.40       306.60   Yes
+7043 3186-AJIEK   Male     66       Two year     Fiber optic         105.65      6844.50    No
+> # ---- 1.4 Structure of the raw data: str() ----
+> str(telco_raw)
+'data.frame':	7043 obs. of  21 variables:
+ $ customerID      : chr  "7590-VHVEG" "5575-GNVDE" "3668-QPYBK" "7795-CFOCW" ...
+ $ gender          : chr  "Female" "Male" "Male" "Male" ...
+ $ SeniorCitizen   : int  0 0 0 0 0 0 0 0 0 0 ...
+ $ Partner         : chr  "Yes" "No" "No" "No" ...
+ $ Dependents      : chr  "No" "No" "No" "No" ...
+ $ tenure          : int  1 34 2 45 2 8 22 10 28 62 ...
+ $ PhoneService    : chr  "No" "Yes" "Yes" "No" ...
+ $ MultipleLines   : chr  "No phone service" "No" "No" "No phone service" ...
+ $ InternetService : chr  "DSL" "DSL" "DSL" "DSL" ...
+ $ OnlineSecurity  : chr  "No" "Yes" "Yes" "Yes" ...
+ $ OnlineBackup    : chr  "Yes" "No" "Yes" "No" ...
+ $ DeviceProtection: chr  "No" "Yes" "No" "Yes" ...
+ $ TechSupport     : chr  "No" "No" "No" "Yes" ...
+ $ StreamingTV     : chr  "No" "No" "No" "No" ...
+ $ StreamingMovies : chr  "No" "No" "No" "No" ...
+ $ Contract        : chr  "Month-to-month" "One year" "Month-to-month" "One year" ...
+ $ PaperlessBilling: chr  "Yes" "No" "Yes" "No" ...
+ $ PaymentMethod   : chr  "Electronic check" "Mailed check" "Mailed check" "Bank transfer (automatic)" ...
+ $ MonthlyCharges  : num  29.9 57 53.9 42.3 70.7 ...
+ $ TotalCharges    : num  29.9 1889.5 108.2 1840.8 151.7 ...
+ $ Churn           : chr  "No" "No" "Yes" "No" ...
+> # ---- 1.5 Summary of the raw data: summary() ----
+> summary(telco_raw)
+  customerID           gender          SeniorCitizen      Partner           Dependents       
+ Length:7043        Length:7043        Min.   :0.0000   Length:7043        Length:7043       
+ Class :character   Class :character   1st Qu.:0.0000   Class :character   Class :character  
+ Mode  :character   Mode  :character   Median :0.0000   Mode  :character   Mode  :character  
+                                       Mean   :0.1621                                        
+                                       3rd Qu.:0.0000                                        
+                                       Max.   :1.0000                                        
+                                                                                             
+     tenure      PhoneService       MultipleLines      InternetService    OnlineSecurity    
+ Min.   : 0.00   Length:7043        Length:7043        Length:7043        Length:7043       
+ 1st Qu.: 9.00   Class :character   Class :character   Class :character   Class :character  
+ Median :29.00   Mode  :character   Mode  :character   Mode  :character   Mode  :character  
+ Mean   :32.37                                                                              
+ 3rd Qu.:55.00                                                                              
+ Max.   :72.00                                                                              
+                                                                                            
+ OnlineBackup       DeviceProtection   TechSupport        StreamingTV        StreamingMovies   
+ Length:7043        Length:7043        Length:7043        Length:7043        Length:7043       
+ Class :character   Class :character   Class :character   Class :character   Class :character  
+ Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character  
+                                                                                               
+                                                                                               
+                                                                                               
+                                                                                               
+   Contract         PaperlessBilling   PaymentMethod      MonthlyCharges    TotalCharges   
+ Length:7043        Length:7043        Length:7043        Min.   : 18.25   Min.   :  18.8  
+ Class :character   Class :character   Class :character   1st Qu.: 35.50   1st Qu.: 401.4  
+ Mode  :character   Mode  :character   Mode  :character   Median : 70.35   Median :1397.5  
+                                                          Mean   : 64.76   Mean   :2283.3  
+                                                          3rd Qu.: 89.85   3rd Qu.:3794.7  
+                                                          Max.   :118.75   Max.   :8684.8  
+                                                                           NA's   :11      
+    Churn          
+ Length:7043       
+ Class :character  
+ Mode  :character  
+                   
+                   
+                   
+                   
+> # ---- 1.6 Data type check ----
+> type_check <- tibble(
++   variable = names(telco_raw),
++   r_class  = vapply(telco_raw, function(x) class(x)[1], character(1)),
++   n_unique = vapply(telco_raw, n_distinct, integer(1)),
++   example  = vapply(telco_raw, function(x) as.character(x[1]), character(1))
++ )
+> print(type_check, n = Inf)
+# A tibble: 21 × 4
+   variable         r_class   n_unique example         
+   <chr>            <chr>        <int> <chr>           
+ 1 customerID       character     7043 7590-VHVEG      
+ 2 gender           character        2 Female          
+ 3 SeniorCitizen    integer          2 0               
+ 4 Partner          character        2 Yes             
+ 5 Dependents       character        2 No              
+ 6 tenure           integer         73 1               
+ 7 PhoneService     character        2 No              
+ 8 MultipleLines    character        3 No phone service
+ 9 InternetService  character        3 DSL             
+10 OnlineSecurity   character        3 No              
+11 OnlineBackup     character        3 Yes             
+12 DeviceProtection character        3 No              
+13 TechSupport      character        3 No              
+14 StreamingTV      character        3 No              
+15 StreamingMovies  character        3 No              
+16 Contract         character        3 Month-to-month  
+17 PaperlessBilling character        2 Yes             
+18 PaymentMethod    character        4 Electronic check
+19 MonthlyCharges   numeric       1585 29.85           
+20 TotalCharges     numeric       6531 29.85           
+21 Churn            character        2 No              
+> save_table(type_check, "w1_raw_type_check")
+Saved table: outputs/tables/w1_raw_type_check.csv
+> # TotalCharges was read as numeric but contains NA values. Re-read the column
+> # as plain text to see what the source file actually holds in those rows.
+> colSums(is.na(telco_raw))[colSums(is.na(telco_raw)) > 0]
+TotalCharges 
+          11 
+> tc_text     <- read.csv(paths$raw_data, colClasses = "character")$TotalCharges
+> non_numeric <- tc_text[is.na(telco_raw$TotalCharges)]
+> length(non_numeric)
+[1] 11
+> table(sprintf("'%s' (nchar = %d)", non_numeric, nchar(non_numeric)))
+
+' ' (nchar = 1) 
+             11 
+> # Only these whitespace-only entries fail numeric conversion
+> sum(is.na(suppressWarnings(as.numeric(tc_text))))
+[1] 11
+> # SeniorCitizen is stored as 0/1 while every other Yes/No field uses text labels
+> table(telco_raw$SeniorCitizen)
+
+   0    1 
+5901 1142 
+> # ---- 1.7 Duplicate checks ----
+> n_dup_rows    <- sum(duplicated(telco_raw))                       # identical rows
+> n_dup_ids     <- sum(duplicated(telco_raw$customerID))            # repeated IDs
+> n_dup_profile <- sum(duplicated(telco_raw[, names(telco_raw) != "customerID"]))
+> c(duplicate_rows = n_dup_rows, duplicate_ids = n_dup_ids,
++   duplicate_profiles_excl_id = n_dup_profile)
+            duplicate_rows              duplicate_ids duplicate_profiles_excl_id 
+                         0                          0                         22 
+> # Inspect records that share every attribute apart from customerID
+> dup_profiles <- telco_raw %>%
++   group_by(across(-customerID)) %>%
++   filter(n() > 1) %>%
++   ungroup()
+> nrow(dup_profiles)
+[1] 42
+> dup_profiles %>%
++   count(tenure, Contract, InternetService, PhoneService, MonthlyCharges, name = "records") %>%
++   arrange(desc(records)) %>%
++   print(n = 10)
+# A tibble: 18 × 6
+   tenure Contract       InternetService PhoneService MonthlyCharges records
+    <int> <chr>          <chr>           <chr>                 <dbl>   <int>
+ 1      1 Month-to-month No              Yes                    20.2       5
+ 2      1 Month-to-month No              Yes                    20.4       4
+ 3      1 Month-to-month No              Yes                    20.0       3
+ 4      1 Month-to-month DSL             Yes                    45.3       2
+ 5      1 Month-to-month DSL             Yes                    45.7       2
+ 6      1 Month-to-month Fiber optic     Yes                    69.2       2
+ 7      1 Month-to-month Fiber optic     Yes                    69.4       2
+ 8      1 Month-to-month Fiber optic     Yes                    69.6       2
+ 9      1 Month-to-month Fiber optic     Yes                    69.9       2
+10      1 Month-to-month Fiber optic     Yes                    70.1       2
+# ℹ 8 more rows
+> summary(dup_profiles$tenure)
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+      1       1       1       1       1       1 
+> save_table(dup_profiles, "w1_duplicate_profiles")
+Saved table: outputs/tables/w1_duplicate_profiles.csv
+> # ---- 1.8 Target variable ----
+> churn_counts <- table(telco_raw$Churn)
+> churn_counts
+
+  No  Yes 
+5174 1869 
+> round(prop.table(churn_counts), 4)
+
+    No    Yes 
+0.7346 0.2654 
+> # ---- 1.9 Data dictionary ----
+> data_dictionary <- tibble(
++   variable = names(telco_raw),
++   description = c(
++     "Unique customer identifier",
++     "Customer gender (Female, Male)",
++     "Whether the customer is a senior citizen (1 = yes, 0 = no)",
++     "Whether the customer has a partner",
++     "Whether the customer has dependents",
++     "Number of months the customer has been with the company",
++     "Whether the customer has a phone service",
++     "Whether the customer has multiple lines (Yes, No, No phone service)",
++     "Internet service type (DSL, Fiber optic, No)",
++     "Online security add-on (Yes, No, No internet service)",
++     "Online backup add-on (Yes, No, No internet service)",
++     "Device protection add-on (Yes, No, No internet service)",
++     "Technical support add-on (Yes, No, No internet service)",
++     "Streaming TV add-on (Yes, No, No internet service)",
++     "Streaming movies add-on (Yes, No, No internet service)",
++     "Contract term (Month-to-month, One year, Two year)",
++     "Whether the customer uses paperless billing",
++     "Payment method (four categories)",
++     "Amount currently charged to the customer each month",
++     "Total amount charged to the customer over their tenure",
++     "Target: whether the customer left in the last month (Yes, No)"
++   ),
++   raw_type = type_check$r_class,
++   n_unique = type_check$n_unique,
++   role = c("Identifier", rep("Predictor", 19), "Target")
++ )
+> print(select(data_dictionary, variable, role, description), n = Inf, width = 100)
+# A tibble: 21 × 3
+   variable         role       description                                                        
+   <chr>            <chr>      <chr>                                                              
+ 1 customerID       Identifier Unique customer identifier                                         
+ 2 gender           Predictor  Customer gender (Female, Male)                                     
+ 3 SeniorCitizen    Predictor  Whether the customer is a senior citizen (1 = yes, 0 = no)         
+ 4 Partner          Predictor  Whether the customer has a partner                                 
+ 5 Dependents       Predictor  Whether the customer has dependents                                
+ 6 tenure           Predictor  Number of months the customer has been with the company            
+ 7 PhoneService     Predictor  Whether the customer has a phone service                           
+ 8 MultipleLines    Predictor  Whether the customer has multiple lines (Yes, No, No phone service)
+ 9 InternetService  Predictor  Internet service type (DSL, Fiber optic, No)                       
+10 OnlineSecurity   Predictor  Online security add-on (Yes, No, No internet service)              
+11 OnlineBackup     Predictor  Online backup add-on (Yes, No, No internet service)                
+12 DeviceProtection Predictor  Device protection add-on (Yes, No, No internet service)            
+13 TechSupport      Predictor  Technical support add-on (Yes, No, No internet service)            
+14 StreamingTV      Predictor  Streaming TV add-on (Yes, No, No internet service)                 
+15 StreamingMovies  Predictor  Streaming movies add-on (Yes, No, No internet service)             
+16 Contract         Predictor  Contract term (Month-to-month, One year, Two year)                 
+17 PaperlessBilling Predictor  Whether the customer uses paperless billing                        
+18 PaymentMethod    Predictor  Payment method (four categories)                                   
+19 MonthlyCharges   Predictor  Amount currently charged to the customer each month                
+20 TotalCharges     Predictor  Total amount charged to the customer over their tenure             
+21 Churn            Target     Target: whether the customer left in the last month (Yes, No)      
+> save_table(data_dictionary, "w1_data_dictionary")
+Saved table: outputs/tables/w1_data_dictionary.csv
+> # ---- 1.10 Save the raw snapshot for the cleaning step ----
+> saveRDS(telco_raw, file.path(paths$processed, "telco_raw.rds"))
+> # Numbers quoted in the report
+> record("r_version", paste(R.version$major, R.version$minor, sep = "."))
+> record("raw_file_bytes", file.size(paths$raw_data))
+> record("raw_md5", unname(tools::md5sum(paths$raw_data)))
+> record("n_rows", nrow(telco_raw))
+> record("n_cols", ncol(telco_raw))
+> record("n_character_cols", sum(type_check$r_class == "character"))
+> record("n_numeric_cols", sum(type_check$r_class %in% c("numeric", "integer")))
+> record("n_totalcharges_non_numeric", length(non_numeric))
+> record("n_dup_rows", n_dup_rows)
+> record("n_dup_ids", n_dup_ids)
+> record("n_dup_profiles", n_dup_profile)
+> record("n_dup_profile_records", nrow(dup_profiles))
+> record("dup_profile_tenure_max", max(dup_profiles$tenure))
+> record("dup_profile_tenure_median", median(dup_profiles$tenure))
+> record("dup_profile_n_nointernet", sum(dup_profiles$InternetService == "No"))
+> record("dup_profile_n_m2m", sum(dup_profiles$Contract == "Month-to-month"))
+> record("n_churn_yes", unname(churn_counts["Yes"]))
+> record("n_churn_no", unname(churn_counts["No"]))
+> record("churn_rate", unname(churn_counts["Yes"] / sum(churn_counts)))
+> write_metrics("01_data_import")
+Saved 19 metrics: outputs/metrics/01_data_import.json

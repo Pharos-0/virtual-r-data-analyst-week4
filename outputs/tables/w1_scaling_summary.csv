@@ -1,0 +1,10 @@
+column,mean,sd,min,max
+tenure,32.371,24.559,0,72
+MonthlyCharges,64.762,30.09,18.25,118.75
+TotalCharges,2279.734,2266.794,0,8684.8
+tenure_minmax,0.45,0.341,0,1
+MonthlyCharges_minmax,0.463,0.299,0,1
+TotalCharges_minmax,0.262,0.261,0,1
+tenure_z,-0,1,-1.318,1.614
+MonthlyCharges_z,-0,1,-1.546,1.794
+TotalCharges_z,-0,1,-1.006,2.826

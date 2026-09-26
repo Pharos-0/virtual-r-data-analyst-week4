@@ -1,0 +1,7 @@
+variable,Churn,n,mean,median,sd
+Tenure (months),No,5174,37.57,38,24.11
+Tenure (months),Yes,1869,17.98,10,19.53
+Monthly charges,No,5174,61.27,64.43,31.09
+Monthly charges,Yes,1869,74.44,79.65,24.67
+Total charges,No,5174,2549.91,1679.53,2329.95
+Total charges,Yes,1869,1531.8,703.55,1890.82

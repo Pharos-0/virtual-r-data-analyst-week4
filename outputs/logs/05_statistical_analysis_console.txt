@@ -1,0 +1,479 @@
+> # =============================================================================
+> # 05_statistical_analysis.R
+> # Week 3 - Part A: hypothesis testing on the cleaned Telco data.
+> #   - class balance, normality and equal-variance checks
+> #   - H1 Contract vs churn (chi-square test of independence)
+> #   - H2 MonthlyCharges by churn (Welch t-test, Wilcoxon as robustness check)
+> #   - H3 Tenure by churn (Wilcoxon rank-sum test)
+> #   - H4 MonthlyCharges across internet service types (ANOVA / Welch / Kruskal)
+> #   - H5 Tenure vs MonthlyCharges (correlation tests)
+> #   - H6 Payment method vs churn (chi-square)
+> #   - H7 Senior citizen vs churn (two-proportion test)
+> #   - H8 Gender vs churn (chi-square)
+> # Significance level: alpha = 0.05, with Holm adjustment across the 8 tests.
+> # =============================================================================
+> source("R/00_setup.R")
+> load_packages(c("car", "nortest"))
+> telco <- as_tibble(readRDS(file.path(paths$processed, "telco_clean.rds")))
+> alpha <- 0.05
+> # ---- 5.1 Class balance and summary statistics by churn status ----
+> table(telco$Churn)
+
+  No  Yes 
+5174 1869 
+> round(prop.table(table(telco$Churn)), 4)
+
+    No    Yes 
+0.7346 0.2654 
+> summary_by_churn <- telco %>%
++   select(Churn, tenure, MonthlyCharges, TotalCharges) %>%
++   pivot_longer(-Churn, names_to = "variable", values_to = "value") %>%
++   group_by(variable, Churn) %>%
++   summarise(n = n(), mean = mean(value), sd = sd(value), min = min(value),
++             q1 = quantile(value, 0.25), median = median(value),
++             q3 = quantile(value, 0.75), max = max(value), .groups = "drop")
+> print(summary_by_churn %>% mutate(across(where(is.double), ~ round(.x, 2))), width = 100)
+# A tibble: 6 × 10
+  variable       Churn     n   mean     sd   min    q1 median     q3   max
+  <chr>          <fct> <int>  <dbl>  <dbl> <dbl> <dbl>  <dbl>  <dbl> <dbl>
+1 MonthlyCharges No     5174   61.3   31.1  18.2  25.1   64.4   88.4  119.
+2 MonthlyCharges Yes    1869   74.4   24.7  18.8  56.2   79.6   94.2  118.
+3 TotalCharges   No     5174 2550.  2330.    0   573.  1680.  4263.  8672.
+4 TotalCharges   Yes    1869 1532.  1891.   18.8 134.   704.  2331.  8685.
+5 tenure         No     5174   37.6   24.1   0    15     38     61     72 
+6 tenure         Yes    1869   18.0   19.5   1     2     10     29     72 
+> save_table(summary_by_churn, "w3_summary_by_churn")
+Saved table: outputs/tables/w3_summary_by_churn.csv
+> tapply(telco$tenure, telco$Churn, summary)
+$No
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   0.00   15.00   38.00   37.57   61.00   72.00 
+
+$Yes
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   1.00    2.00   10.00   17.98   29.00   72.00 
+
+> # ---- 5.2 Normality checks for the numeric variables ----
+> # Large samples make formal tests reject normality for trivial departures, so
+> # skewness and Q-Q plots are read alongside the Anderson-Darling test.
+> skew <- function(x) mean((x - mean(x))^3) / sd(x)^3
+> normality <- telco %>%
++   select(Churn, tenure, MonthlyCharges) %>%
++   pivot_longer(-Churn, names_to = "variable", values_to = "value") %>%
++   group_by(variable, Churn) %>%
++   summarise(n = n(), skewness = skew(value),
++             ad_statistic = nortest::ad.test(value)$statistic,
++             ad_p_value = nortest::ad.test(value)$p.value, .groups = "drop")
+> normality
+# A tibble: 4 × 6
+  variable       Churn     n skewness ad_statistic ad_p_value
+  <chr>          <fct> <int>    <dbl>        <dbl>      <dbl>
+1 MonthlyCharges No     5174  -0.0250        139.     3.7e-24
+2 MonthlyCharges Yes    1869  -0.728          42.1    3.7e-24
+3 tenure         No     5174  -0.0317        121.     3.7e-24
+4 tenure         Yes    1869   1.15          121.     3.7e-24
+> save_table(normality, "w3_normality_tests")
+Saved table: outputs/tables/w3_normality_tests.csv
+> # Shapiro-Wilk accepts at most 5,000 values, so it is run on a random sample
+> set.seed(SEED)
+> shapiro.test(sample(telco$MonthlyCharges, 5000))
+
+	Shapiro-Wilk normality test
+
+data:  sample(telco$MonthlyCharges, 5000)
+W = 0.91968, p-value < 2.2e-16
+
+> qq_data <- telco %>%
++   select(Churn, tenure, MonthlyCharges) %>%
++   pivot_longer(-Churn, names_to = "variable", values_to = "value") %>%
++   mutate(group = paste0(ifelse(variable == "tenure", "Tenure", "Monthly charges"), ", ",
++                         ifelse(Churn == "Yes", "churned", "retained")))
+> p_qq <- ggplot(qq_data, aes(sample = value, colour = Churn)) +
++   stat_qq(size = 0.5, alpha = 0.5) +
++   stat_qq_line(colour = col_text, linewidth = 0.4) +
++   facet_wrap(~ group, scales = "free_y") +
++   scale_colour_manual(values = pal_churn, guide = "none") +
++   labs(title = "Neither tenure nor monthly charges is normally distributed within churn groups",
++        subtitle = "Normal Q-Q plots; points would follow the line if the data were normal",
++        x = "Theoretical normal quantile", y = "Observed value")
+> save_plot(p_qq, "w3_qq_plots", width = 7, height = 5)
+Saved figure: figures/w3_qq_plots.png
+> # ---- 5.3 Equal-variance checks (Levene / Brown-Forsythe) ----
+> levene_mc_churn     <- car::leveneTest(MonthlyCharges ~ Churn, data = telco)
+> levene_tenure_churn <- car::leveneTest(tenure ~ Churn, data = telco)
+> levene_mc_internet  <- car::leveneTest(MonthlyCharges ~ InternetService, data = telco)
+> levene_mc_churn
+Levene's Test for Homogeneity of Variance (center = median)
+        Df F value    Pr(>F)    
+group    1  361.84 < 2.2e-16 ***
+      7041                      
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+> levene_tenure_churn
+Levene's Test for Homogeneity of Variance (center = median)
+        Df F value    Pr(>F)    
+group    1  417.17 < 2.2e-16 ***
+      7041                      
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+> levene_mc_internet
+Levene's Test for Homogeneity of Variance (center = median)
+        Df F value    Pr(>F)    
+group    2  1317.9 < 2.2e-16 ***
+      7040                      
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+> telco %>% group_by(Churn) %>% summarise(var_monthly = var(MonthlyCharges), var_tenure = var(tenure))
+# A tibble: 2 × 3
+  Churn var_monthly var_tenure
+  <fct>       <dbl>      <dbl>
+1 No           967.       581.
+2 Yes          608.       381.
+> # ---- 5.4 H1: Contract type and churn (chi-square test of independence) ----
+> # H0: churn is independent of contract type. H1: churn depends on contract type.
+> tab_contract <- table(telco$Contract, telco$Churn)
+> tab_contract
+                
+                   No  Yes
+  Month-to-month 2220 1655
+  One year       1307  166
+  Two year       1647   48
+> h1 <- chisq.test(tab_contract)
+> h1
+
+	Pearson's Chi-squared test
+
+data:  tab_contract
+X-squared = 1184.6, df = 2, p-value < 2.2e-16
+
+> min(h1$expected)                         # all expected counts must be >= 5
+[1] 390.8898
+> round(h1$stdres, 2)                      # standardised residuals by cell
+                
+                     No    Yes
+  Month-to-month -34.00  34.00
+  One year        14.92 -14.92
+  Two year        25.37 -25.37
+> h1_v <- sqrt(unname(h1$statistic) / (sum(tab_contract) * (min(dim(tab_contract)) - 1)))
+> h1_v
+[1] 0.4101157
+> # ---- 5.5 H2: Monthly charges of churned vs retained customers ----
+> # H0: mean monthly charges are equal. H1: they differ.
+> h2 <- t.test(MonthlyCharges ~ Churn, data = telco, var.equal = FALSE)
+> h2
+
+	Welch Two Sample t-test
+
+data:  MonthlyCharges by Churn
+t = -18.408, df = 4135.8, p-value < 2.2e-16
+alternative hypothesis: true difference in means between group No and group Yes is not equal to 0
+95 percent confidence interval:
+ -14.57957 -11.77284
+sample estimates:
+ mean in group No mean in group Yes 
+         61.26512          74.44133 
+
+> h2_means <- telco %>% group_by(Churn) %>%
++   summarise(n = n(), mean = mean(MonthlyCharges), sd = sd(MonthlyCharges))
+> h2_means
+# A tibble: 2 × 4
+  Churn     n  mean    sd
+  <fct> <int> <dbl> <dbl>
+1 No     5174  61.3  31.1
+2 Yes    1869  74.4  24.7
+> pooled_sd <- sqrt(((h2_means$n[1] - 1) * h2_means$sd[1]^2 + (h2_means$n[2] - 1) * h2_means$sd[2]^2) /
++                     (sum(h2_means$n) - 2))
+> h2_d <- (h2_means$mean[2] - h2_means$mean[1]) / pooled_sd     # Cohen's d (Yes - No)
+> h2_d
+[1] 0.4462835
+> # Robustness check that does not assume normality
+> h2_w <- wilcox.test(MonthlyCharges ~ Churn, data = telco, conf.int = TRUE)
+> h2_w
+
+	Wilcoxon rank sum test with continuity correction
+
+data:  MonthlyCharges by Churn
+W = 3667080, p-value < 2.2e-16
+alternative hypothesis: true location shift is not equal to 0
+95 percent confidence interval:
+ -14.44994 -10.54999
+sample estimates:
+difference in location 
+             -12.45001 
+
+> # ---- 5.6 H3: Tenure of churned vs retained customers ----
+> # H0: the tenure distributions are the same. H1: they differ (location shift).
+> h3 <- wilcox.test(tenure ~ Churn, data = telco, conf.int = TRUE)
+> h3
+
+	Wilcoxon rank sum test with continuity correction
+
+data:  tenure by Churn
+W = 7154668, p-value < 2.2e-16
+alternative hypothesis: true location shift is not equal to 0
+95 percent confidence interval:
+ 17.99996 21.00000
+sample estimates:
+difference in location 
+              19.00004 
+
+> n_no <- sum(telco$Churn == "No"); n_yes <- sum(telco$Churn == "Yes")
+> # Rank-biserial correlation: positive = retained customers tend to have longer tenure
+> h3_r <- 2 * unname(h3$statistic) / (n_no * n_yes) - 1
+> h3_r
+[1] 0.4797344
+> telco %>% group_by(Churn) %>% summarise(median_tenure = median(tenure), mean_tenure = mean(tenure))
+# A tibble: 2 × 3
+  Churn median_tenure mean_tenure
+  <fct>         <dbl>       <dbl>
+1 No               38        37.6
+2 Yes              10        18.0
+> # ---- 5.7 H4: Monthly charges across internet service types ----
+> # H0: mean monthly charges are equal for DSL, Fiber optic and No internet.
+> h4_aov <- aov(MonthlyCharges ~ InternetService, data = telco)
+> summary(h4_aov)
+                  Df  Sum Sq Mean Sq F value Pr(>F)    
+InternetService    2 5232689 2616345   16112 <2e-16 ***
+Residuals       7040 1143214     162                   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+> h4_eta2 <- summary(h4_aov)[[1]][["Sum Sq"]][1] / sum(summary(h4_aov)[[1]][["Sum Sq"]])
+> h4_eta2
+[1] 0.8206977
+> h4_welch <- oneway.test(MonthlyCharges ~ InternetService, data = telco, var.equal = FALSE)
+> h4_welch
+
+	One-way analysis of means (not assuming equal variances)
+
+data:  MonthlyCharges and InternetService
+F = 50069, num df = 2.0, denom df = 3891.7, p-value < 2.2e-16
+
+> h4_kw <- kruskal.test(MonthlyCharges ~ InternetService, data = telco)
+> h4_kw
+
+	Kruskal-Wallis rank sum test
+
+data:  MonthlyCharges by InternetService
+Kruskal-Wallis chi-squared = 5529.7, df = 2, p-value < 2.2e-16
+
+> pairwise.t.test(telco$MonthlyCharges, telco$InternetService, pool.sd = FALSE,
++                 p.adjust.method = "holm")
+
+	Pairwise comparisons using t tests with non-pooled SD 
+
+data:  telco$MonthlyCharges and telco$InternetService 
+
+            DSL    Fiber optic
+Fiber optic <2e-16 -          
+No          <2e-16 <2e-16     
+
+P value adjustment method: holm 
+> h4_tukey <- TukeyHSD(h4_aov)
+> h4_tukey
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = MonthlyCharges ~ InternetService, data = telco)
+
+$InternetService
+                     diff       lwr       upr p adj
+Fiber optic-DSL  33.39796  32.58751  34.20841     0
+No-DSL          -37.02297 -37.99938 -36.04657     0
+No-Fiber optic  -70.42094 -71.35528 -69.48659     0
+
+> ragg::agg_png(file.path(paths$figures, "w3_anova_residuals.png"), width = 7, height = 3.4,
++               units = "in", res = 300, background = "white")
+> par(mfrow = c(1, 2), mar = c(4, 4, 2.5, 1), cex = 0.8)
+> plot(h4_aov, which = 1, caption = "", sub.caption = "", main = "Residuals vs fitted")
+> plot(h4_aov, which = 2, caption = "", sub.caption = "", main = "Normal Q-Q of residuals")
+> invisible(dev.off())
+> # ---- 5.8 H5: Correlation between tenure and monthly charges ----
+> # H0: the correlation is zero. H1: it is not zero.
+> h5_pearson  <- cor.test(telco$tenure, telco$MonthlyCharges, method = "pearson")
+> h5_spearman <- cor.test(telco$tenure, telco$MonthlyCharges, method = "spearman", exact = FALSE)
+> h5_pearson
+
+	Pearson's product-moment correlation
+
+data:  telco$tenure and telco$MonthlyCharges
+t = 21.472, df = 7041, p-value < 2.2e-16
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ 0.2258523 0.2696936
+sample estimates:
+      cor 
+0.2478999 
+
+> h5_spearman
+
+	Spearman's rank correlation rho
+
+data:  telco$tenure and telco$MonthlyCharges
+S = 42131826530, p-value < 2.2e-16
+alternative hypothesis: true rho is not equal to 0
+sample estimates:
+      rho 
+0.2764168 
+
+> # ---- 5.9 H6: Payment method and churn ----
+> tab_payment <- table(telco$PaymentMethod, telco$Churn)
+> h6 <- chisq.test(tab_payment)
+> h6
+
+	Pearson's Chi-squared test
+
+data:  tab_payment
+X-squared = 648.14, df = 3, p-value < 2.2e-16
+
+> round(h6$stdres, 2)
+                           
+                                No    Yes
+  Bank transfer (automatic)   9.90  -9.90
+  Credit card (automatic)    11.27 -11.27
+  Electronic check          -25.34  25.34
+  Mailed check                7.69  -7.69
+> h6_v <- sqrt(unname(h6$statistic) / (sum(tab_payment) * (min(dim(tab_payment)) - 1)))
+> h6_v
+[1] 0.3033586
+> # ---- 5.10 H7: Senior citizens and churn (difference in proportions) ----
+> tab_senior <- table(telco$SeniorCitizen, telco$Churn)[c("Yes", "No"), c("Yes", "No")]
+> tab_senior
+     
+       Yes   No
+  Yes  476  666
+  No  1393 4508
+> h7 <- prop.test(tab_senior)
+> h7
+
+	2-sample test for equality of proportions with continuity correction
+
+data:  tab_senior
+X-squared = 159.43, df = 1, p-value < 2.2e-16
+alternative hypothesis: two.sided
+95 percent confidence interval:
+ 0.1496495 0.2118524
+sample estimates:
+   prop 1    prop 2 
+0.4168126 0.2360617 
+
+> # ---- 5.11 H8: Gender and churn ----
+> tab_gender <- table(telco$gender, telco$Churn)
+> h8 <- chisq.test(tab_gender)
+> h8
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  tab_gender
+X-squared = 0.48408, df = 1, p-value = 0.4866
+
+> round(prop.table(tab_gender, 1), 3)
+        
+            No   Yes
+  Female 0.731 0.269
+  Male   0.738 0.262
+> # ---- 5.12 Summary of all tests with Holm adjustment ----
+> test_summary <- tibble(
++   hypothesis = paste0("H", 1:8),
++   question   = c("Contract type vs churn", "Monthly charges: churned vs retained",
++                  "Tenure: churned vs retained", "Monthly charges across internet types",
++                  "Tenure vs monthly charges", "Payment method vs churn",
++                  "Senior citizen vs churn", "Gender vs churn"),
++   test       = c("Pearson chi-square", "Welch two-sample t-test", "Wilcoxon rank-sum",
++                  "Welch one-way ANOVA", "Pearson correlation", "Pearson chi-square",
++                  "Two-proportion test (chi-square)", "Pearson chi-square (Yates)"),
++   statistic  = c(h1$statistic, h2$statistic, h3$statistic, h4_welch$statistic,
++                  h5_pearson$statistic, h6$statistic, h7$statistic, h8$statistic),
++   p_value    = c(h1$p.value, h2$p.value, h3$p.value, h4_welch$p.value, h5_pearson$p.value,
++                  h6$p.value, h7$p.value, h8$p.value),
++   effect_size = c(sprintf("Cramer's V = %.3f", h1_v), sprintf("Cohen's d = %.2f", h2_d),
++                   sprintf("rank-biserial r = %.2f", h3_r), sprintf("eta-squared = %.3f", h4_eta2),
++                   sprintf("r = %.3f", h5_pearson$estimate), sprintf("Cramer's V = %.3f", h6_v),
++                   sprintf("diff = %.3f", diff(rev(h7$estimate))),
++                   sprintf("Cramer's V = %.3f", sqrt(unname(h8$statistic) / sum(tab_gender))))
++ ) %>%
++   mutate(p_holm = p.adjust(p_value, method = "holm"),
++          decision = if_else(p_holm < alpha, "Reject H0", "Fail to reject H0"))
+> print(test_summary %>% select(hypothesis, test, statistic, p_value, p_holm, decision), width = 110)
+# A tibble: 8 × 6
+  hypothesis test                               statistic   p_value    p_holm decision         
+  <chr>      <chr>                                  <dbl>     <dbl>     <dbl> <chr>            
+1 H1         Pearson chi-square                  1185.    5.86e-258 4.10e-257 Reject H0        
+2 H2         Welch two-sample t-test              -18.4   8.59e- 73 2.58e- 72 Reject H0        
+3 H3         Wilcoxon rank-sum                7154668     2.42e-208 1.45e-207 Reject H0        
+4 H4         Welch one-way ANOVA                50069.    0         0         Reject H0        
+5 H5         Pearson correlation                   21.5   4.09e- 99 1.64e- 98 Reject H0        
+6 H6         Pearson chi-square                   648.    3.68e-140 1.84e-139 Reject H0        
+7 H7         Two-proportion test (chi-square)     159.    1.51e- 36 3.02e- 36 Reject H0        
+8 H8         Pearson chi-square (Yates)             0.484 4.87e-  1 4.87e-  1 Fail to reject H0
+> test_summary %>% select(hypothesis, effect_size)
+# A tibble: 8 × 2
+  hypothesis effect_size           
+  <chr>      <chr>                 
+1 H1         Cramer's V = 0.410    
+2 H2         Cohen's d = 0.45      
+3 H3         rank-biserial r = 0.48
+4 H4         eta-squared = 0.821   
+5 H5         r = 0.248             
+6 H6         Cramer's V = 0.303    
+7 H7         diff = 0.181          
+8 H8         Cramer's V = 0.008    
+> save_table(test_summary, "w3_hypothesis_test_summary")
+Saved table: outputs/tables/w3_hypothesis_test_summary.csv
+> # ---- 5.13 Metrics for the report ----
+> record("alpha", alpha)
+> for (i in seq_len(nrow(summary_by_churn))) {
++   for (st in c("mean", "sd", "median", "q1", "q3")) {
++     record(paste0("sum_", summary_by_churn$variable[i], "_", st, "_", summary_by_churn$Churn[i]),
++            summary_by_churn[[st]][i])
++   }
++ }
+> record("h1_chisq", unname(h1$statistic)); record("h1_df", unname(h1$parameter))
+> record("h1_p", h1$p.value); record("h1_cramers_v", h1_v); record("h1_min_expected", min(h1$expected))
+> record("h1_stdres_m2m_yes", h1$stdres["Month-to-month", "Yes"])
+> record("h1_stdres_2y_yes", h1$stdres["Two year", "Yes"])
+> record("h2_t", unname(h2$statistic)); record("h2_df", unname(h2$parameter)); record("h2_p", h2$p.value)
+> record("h2_ci_low", h2$conf.int[1]); record("h2_ci_high", h2$conf.int[2])
+> record("h2_mean_no", h2_means$mean[1]); record("h2_mean_yes", h2_means$mean[2])
+> record("h2_sd_no", h2_means$sd[1]); record("h2_sd_yes", h2_means$sd[2])
+> record("h2_cohens_d", h2_d); record("h2_w_p", h2_w$p.value)
+> record("h2_w_shift", unname(h2_w$estimate))
+> record("h2_w_ci_low", h2_w$conf.int[1]); record("h2_w_ci_high", h2_w$conf.int[2])
+> record("h3_w", unname(h3$statistic)); record("h3_p", h3$p.value)
+> record("h3_shift", unname(h3$estimate))
+> record("h3_ci_low", h3$conf.int[1]); record("h3_ci_high", h3$conf.int[2])
+> record("h3_rank_biserial", h3_r)
+> record("h4_f", summary(h4_aov)[[1]][["F value"]][1]); record("h4_p_aov", summary(h4_aov)[[1]][["Pr(>F)"]][1])
+> record("h4_welch_f", unname(h4_welch$statistic)); record("h4_welch_p", h4_welch$p.value)
+> record("h4_welch_df1", unname(h4_welch$parameter[1])); record("h4_welch_df2", unname(h4_welch$parameter[2]))
+> record("h4_kw", unname(h4_kw$statistic)); record("h4_kw_p", h4_kw$p.value); record("h4_eta2", h4_eta2)
+> tk <- h4_tukey$InternetService
+> record("h4_tukey_fiber_dsl", tk["Fiber optic-DSL", "diff"]); record("h4_tukey_no_dsl", tk["No-DSL", "diff"])
+> record("h4_tukey_no_fiber", tk["No-Fiber optic", "diff"])
+> record("h4_df_resid", summary(h4_aov)[[1]][["Df"]][2])
+> record("h5_r", unname(h5_pearson$estimate)); record("h5_p", h5_pearson$p.value)
+> record("h5_ci_low", h5_pearson$conf.int[1]); record("h5_ci_high", h5_pearson$conf.int[2])
+> record("h5_rho", unname(h5_spearman$estimate)); record("h5_t", unname(h5_pearson$statistic))
+> record("h6_chisq", unname(h6$statistic)); record("h6_df", unname(h6$parameter)); record("h6_p", h6$p.value)
+> record("h6_cramers_v", h6_v); record("h6_stdres_echeck_yes", h6$stdres["Electronic check", "Yes"])
+> record("h7_chisq", unname(h7$statistic)); record("h7_p", h7$p.value)
+> record("h7_p_senior", unname(h7$estimate[1])); record("h7_p_nonsenior", unname(h7$estimate[2]))
+> record("h7_ci_low", h7$conf.int[1]); record("h7_ci_high", h7$conf.int[2])
+> record("h8_chisq", unname(h8$statistic)); record("h8_p", h8$p.value)
+> record("h8_rate_female", prop.table(tab_gender, 1)["Female", "Yes"])
+> record("h8_rate_male", prop.table(tab_gender, 1)["Male", "Yes"])
+> record("h8_p_holm", test_summary$p_holm[8])
+> record("n_rejected", sum(test_summary$decision == "Reject H0"))
+> record("gender_cramers_v",
++        sqrt(unname(suppressWarnings(chisq.test(tab_gender, correct = FALSE))$statistic) / sum(tab_gender)))
+> record("share_senior", mean(telco$SeniorCitizen == "Yes"))
+> record("share_churners_le12", mean(telco$tenure[telco$Churn == "Yes"] <= 12))
+> record("levene_mc_churn_F", levene_mc_churn$`F value`[1]); record("levene_mc_churn_p", levene_mc_churn$`Pr(>F)`[1])
+> record("levene_tenure_churn_F", levene_tenure_churn$`F value`[1]); record("levene_tenure_churn_p", levene_tenure_churn$`Pr(>F)`[1])
+> record("levene_mc_internet_F", levene_mc_internet$`F value`[1]); record("levene_mc_internet_p", levene_mc_internet$`Pr(>F)`[1])
+> for (i in seq_len(nrow(normality))) {
++   key <- paste0(normality$variable[i], "_", normality$Churn[i])
++   record(paste0("skew_", key), normality$skewness[i]); record(paste0("ad_p_", key), normality$ad_p_value[i])
++   record(paste0("ad_stat_", key), unname(normality$ad_statistic[i]))
++ }
+> write_metrics("05_statistical_analysis")
+Saved 115 metrics: outputs/metrics/05_statistical_analysis.json

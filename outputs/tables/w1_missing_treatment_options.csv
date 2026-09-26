@@ -1,0 +1,5 @@
+method,rows_retained,value_filled
+Listwise deletion,7032,NA
+Mean imputation,7043,2283.3
+Median imputation,7043,1397.47
+Set to 0 because tenure = 0 (chosen),7043,0
