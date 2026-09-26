@@ -1,0 +1,26 @@
+# R packages loaded by the scripts in this repository, with the versions used (R 4.3.3)
+# Install with: install.packages(c("broom", "car", "caret", "corrplot", "dplyr", "forcats", "ggplot2", "highr", "htmlwidgets", "janitor", "jsonlite", "nortest", "plotly", "pROC", "purrr", "ragg", "ranger", "readr", "ResourceSelection", "scales", "skimr", "stringr", "tibble", "tidyr"))
+broom==1.0.8
+car==3.1.3
+caret==7.0.1
+corrplot==0.95
+dplyr==1.1.4
+forcats==1.0.0
+ggplot2==3.5.2
+highr==0.10
+htmlwidgets==1.6.4
+janitor==2.2.1
+jsonlite==1.8.8
+nortest==1.0.4
+plotly==4.11.0
+pROC==1.18.5
+purrr==1.0.2
+ragg==1.3.0
+ranger==0.17.0
+readr==2.1.5
+ResourceSelection==0.3.6
+scales==1.3.0
+skimr==2.1.5
+stringr==1.5.1
+tibble==3.2.1
+tidyr==1.3.1
